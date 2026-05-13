@@ -1,6 +1,6 @@
 import { expect } from 'chai'
 import codecs from '../../src/db/codecs/index.js'
-import { XFL } from '@xrplkit/xfl'
+import { XFL } from '../../vendor/xfl/wrappers/class.js'
 
 
 const testValues = {

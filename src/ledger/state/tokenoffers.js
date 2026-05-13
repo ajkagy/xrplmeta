@@ -1,6 +1,6 @@
-import { XFL } from '@xrplkit/xfl'
-import { amountFromRippled } from '@xrplkit/tokens'
-import { rippleToUnix } from '@xrplkit/time'
+import { XFL } from '../../../vendor/xfl/wrappers/class.js'
+import { amountFromRippled } from '../../xrpl/tokens.js'
+import { rippleToUnix } from '../../lib/time.js'
 import { writeTokenOffer, expireTokenOffer } from '../../db/helpers/tokenoffers.js'
 
 export function skip({ ctx }){

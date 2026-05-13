@@ -1,6 +1,6 @@
 import { encodeAccountID } from 'ripple-address-codec'
-import { amountFromRippled } from '@xrplkit/tokens'
-import { rippleToUnix } from '@xrplkit/time'
+import { amountFromRippled } from '../../xrpl/tokens.js'
+import { rippleToUnix } from '../../lib/time.js'
 import { expireNFTokenOffer, writeNFTokenOffer } from '../../db/helpers/nftoffers.js'
 import TokenType from '../../xrpl/tokentype.js'
 

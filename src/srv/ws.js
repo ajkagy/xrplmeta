@@ -1,4 +1,4 @@
-import log from '@mwni/log'
+import log from '../lib/log.js'
 import * as procedures from './api.js'
 import { formatTokenCache } from './procedures/token.js'
 import { executeProcedure } from './worker.js'
@@ -78,11 +78,18 @@ export function createManager({ ctx }){
 			}
 	
 			socket.on('message', async message => {
+				if(message?.length > 256 * 1024){
+					log.debug(`client #${client.id} sent oversized message - dropping`)
+					socket.close()
+					return
+				}
+
 				try{
 					var { id, command, api_version, ...params } = JSON.parse(message)
 				}catch{
 					log.debug(`client #${client.id} sent malformed request - dropping them`)
 					socket.close()
+					return
 				}
 	
 				try{

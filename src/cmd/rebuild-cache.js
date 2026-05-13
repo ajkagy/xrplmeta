@@ -1,4 +1,4 @@
-import log from '@mwni/log'
+import log from '../lib/log.js'
 import { openDB } from '../db/index.js'
 import { updateIconCacheFor } from '../cache/icons.js'
 import { 

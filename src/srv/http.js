@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import Router from '@koa/router'
 import sendFile from 'koa-send'
-import log from '@mwni/log'
+import log from '../lib/log.js'
 import * as procedures from './api.js'
 import { getCachedIconPath, iconSizes } from '../cache/icons.js'
 import { executeProcedure } from './worker.js'
@@ -75,6 +75,8 @@ export function createRouter({ ctx }){
 					include_changes: svc.query.include_changes !== undefined,
 					decode_currency: svc.query.decode_currency !== undefined,
 					original_icons: svc.query.original_icons !== undefined,
+					exclude_pools: svc.query.exclude_pools !== undefined,
+					only_pools: svc.query.only_pools !== undefined,
 					name_like: svc.query.name_like,
 					trust_levels: svc.query.trust_levels
 						? svc.query.trust_levels.split(',')
@@ -101,6 +103,8 @@ export function createRouter({ ctx }){
 					include_changes: svc.query.include_changes !== undefined,
 					decode_currency: svc.query.decode_currency !== undefined,
 					original_icons: svc.query.original_icons !== undefined,
+					exclude_pools: svc.query.exclude_pools !== undefined,
+					only_pools: svc.query.only_pools !== undefined,
 					name_like: svc.query.name_like,
 					trust_levels: svc.query.trust_levels
 						? svc.query.trust_levels.split(',')
@@ -127,6 +131,8 @@ export function createRouter({ ctx }){
 					include_changes: svc.query.include_changes !== undefined,
 					decode_currency: svc.query.decode_currency !== undefined,
 					original_icons: svc.query.original_icons !== undefined,
+					exclude_pools: svc.query.exclude_pools !== undefined,
+					only_pools: svc.query.only_pools !== undefined,
 					name_like: svc.query.name_like,
 					trust_levels: svc.query.trust_levels
 						? svc.query.trust_levels.split(',')
@@ -153,6 +159,8 @@ export function createRouter({ ctx }){
 					include_changes: svc.query.include_changes !== undefined,
 					decode_currency: svc.query.decode_currency !== undefined,
 					original_icons: svc.query.original_icons !== undefined,
+					exclude_pools: svc.query.exclude_pools !== undefined,
+					only_pools: svc.query.only_pools !== undefined,
 					name_like: svc.query.name_like,
 					trust_levels: svc.query.trust_levels
 						? svc.query.trust_levels.split(',')
@@ -308,6 +316,55 @@ export function createRouter({ ctx }){
 	)
 
 	router.get(
+		'/v2/amms',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'amms',
+				params: {
+					...svc.query,
+					token: svc.query.token ? parseTokenURI(svc.query.token) : undefined,
+					...parsePoint(svc.query)
+				}
+			})
+		}
+	)
+
+	router.get(
+		'/v2/amm/:account',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'amm',
+				params: {
+					...svc.query,
+					account: svc.params.account,
+					...parsePoint(svc.query)
+				}
+			})
+		}
+	)
+
+	router.get(
+		'/v2/amm/:account/series',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'amm_series',
+				params: {
+					...svc.query,
+					account: svc.params.account,
+					points: svc.query.points ? parseInt(svc.query.points, 10) : undefined,
+					...parseRange(svc.query)
+				}
+			})
+		}
+	)
+
+	router.get(
 		'/icon/:file',
 		async svc => {
 			try{
@@ -382,13 +439,17 @@ async function handle({ ctx, svc, procedure, params = {} }){
 			svc.body = {
 				message: `Internal error while handling your request.`
 			}
-			log.warn(`internal error while handling procedure "${procedure}":\n${e.stack}\nparams:`, params)
+			log.warn(`internal error while handling procedure "${procedure}": ${e.message || 'unknown'}`)
+			log.debug(`error details for "${procedure}":\n${e.stack}\nparams:`, params)
 		}
 	}
 }
 
 function parseIOUTokenUri(uri){
 	let [currency, issuer] = uri.split(':')
+
+	if(!currency || !issuer)
+		throw { type: 'invalidParam', message: `invalid token URI "${uri}" — expected "<currency>:<issuer>"`, expose: true }
 
 	return {
 		currency,
@@ -406,15 +467,29 @@ function parseTokenURI(uri){
 	if(uri.includes(':')){
 		let [currency, issuer] = uri.split(':')
 
+		if(!currency || !issuer)
+			throw { type: 'invalidParam', message: `invalid token URI "${uri}"`, expose: true }
+
 		return {
 			currency,
 			issuer
 		}
 	}
 
+	if(typeof uri !== 'string' || uri.length === 0 || uri.length > 200)
+		throw { type: 'invalidParam', message: `invalid token URI`, expose: true }
+
 	return {
 		mptIssuanceId: uri
 	}
+}
+
+function safeInt(value, name){
+	if(value === undefined || value === null) return undefined
+	let n = parseInt(value, 10)
+	if(!Number.isFinite(n) || n < 0 || n > Number.MAX_SAFE_INTEGER)
+		throw { type: 'invalidParam', message: `parameter "${name}" must be a non-negative integer`, expose: true }
+	return n
 }
 
 function parseRange({ sequence_start, sequence_end, sequence_interval, time_start, time_end, time_interval }){
@@ -422,24 +497,22 @@ function parseRange({ sequence_start, sequence_end, sequence_interval, time_star
 
 	if(sequence_start !== undefined){
 		range.sequence = {
-			start: parseInt(sequence_start),
-			end: sequence_end
-				? parseInt(sequence_end)
-				: undefined
+			start: safeInt(sequence_start, 'sequence_start'),
+			end: safeInt(sequence_end, 'sequence_end')
 		}
 
-		if(sequence_interval)
-			range.sequence.interval = parseInt(sequence_interval)
+		let interval = safeInt(sequence_interval, 'sequence_interval')
+		if(interval !== undefined)
+			range.sequence.interval = interval
 	}else if(time_start !== undefined){
 		range.time = {
-			start: parseInt(time_start),
-			end: time_end
-				? parseInt(time_end)
-				: undefined
+			start: safeInt(time_start, 'time_start'),
+			end: safeInt(time_end, 'time_end')
 		}
 
-		if(time_interval)
-			range.time.interval = parseInt(time_interval)
+		let interval = safeInt(time_interval, 'time_interval')
+		if(interval !== undefined)
+			range.time.interval = interval
 	}
 
 	return range
@@ -447,8 +520,8 @@ function parseRange({ sequence_start, sequence_end, sequence_interval, time_star
 
 function parsePoint({ sequence, time }){
 	if(sequence !== undefined){
-		return { sequence: parseInt(sequence) }
+		return { sequence: safeInt(sequence, 'sequence') }
 	}else if(time !== undefined){
-		return { time: parseInt(time) }
+		return { time: safeInt(time, 'time') }
 	}
 }

@@ -1,0 +1,9 @@
+{
+	"name": "@structdb/sqlite",
+	"version": "1.7.2-alpha",
+	"type": "module",
+	"main": "index.js",
+	"dependencies": {
+		"@structdb/codec": "1.1.1-alpha"
+	}
+}

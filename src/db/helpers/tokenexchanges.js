@@ -1,4 +1,4 @@
-import { XFL, sum, div, gt } from '@xrplkit/xfl'
+import { XFL, sum, div, gt } from '../../../vendor/xfl/wrappers/class.js'
 
 const dustValueXRP = '0.0001'
 

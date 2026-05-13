@@ -1,7 +1,7 @@
 export function readTokenHolders({ ctx, token, ledgerSequence, offset = 0, limit = 100 }){
 	return ctx.db.core.accountBalances.readManyRaw({
-		query: 
-			`SELECT Account.id, Account.address, AccountBalance.balance
+		query:
+			`SELECT Account.id, Account.address, Account.pseudo, Account.pseudoSource, AccountBalance.balance
 			FROM AccountBalance
 			JOIN Account ON (Account.id = AccountBalance.account)
 			JOIN (
@@ -10,9 +10,9 @@ export function readTokenHolders({ ctx, token, ledgerSequence, offset = 0, limit
 				WHERE token = ?
 				AND ledgerSequence <= ?
 				GROUP BY account
-			) latest 
+			) latest
 				ON AccountBalance.account = latest.account
-				AND AccountBalance.ledgerSequence = latest.maxSequence 	
+				AND AccountBalance.ledgerSequence = latest.maxSequence
 			WHERE token = ?
 			AND AccountBalance.balance > 0
 			ORDER BY AccountBalance.balance DESC
@@ -25,10 +25,12 @@ export function readTokenHolders({ ctx, token, ledgerSequence, offset = 0, limit
 			limit
 		]
 	})
-		.map(({ id, address, balance }) => ({
+		.map(({ id, address, pseudo, pseudoSource, balance }) => ({
 			account: {
 				id,
-				address: ctx.db.core.accounts.struct.decodeField('address', address)
+				address: ctx.db.core.accounts.struct.decodeField('address', address),
+				pseudo: !!pseudo,
+				pseudoSource: pseudoSource || undefined
 			},
 			balance
 		}))

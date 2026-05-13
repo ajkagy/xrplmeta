@@ -1,12 +1,12 @@
-import log from '@mwni/log'
-import { createEmitter } from '@mwni/events'
-import { wait } from '@xrplkit/time'
+import { EventEmitter } from 'node:events'
+import log from '../lib/log.js'
+import { wait } from '../lib/time.js'
 import { format as formatLedger } from './ledger.js'
 import Node from './node.js'
 
 
 export function createPool(sources){
-	let events = new createEmitter()
+	let events = new EventEmitter()
 	let seenHashes = []
 	let queue = []
 	let nodes = []

@@ -1,5 +1,5 @@
-import log from '@mwni/log'
-import { spawn } from '@mwni/workers'
+import log from '../lib/log.js'
+import { spawn } from '../lib/workers.js'
 import { openDB } from '../db/index.js'
 import { startServer } from '../srv/server.js'
 

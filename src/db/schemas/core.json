@@ -249,82 +249,7 @@
 					"$ref": "#/definitions/Ledger"
 				},
 				"type": {
-					"type": "string",
-					"enum": [
-						"AccountSet",
-						"AccountDelete",
-						"CheckCancel",
-						"CheckCash",
-						"CheckCreate",
-						"DepositPreauth",
-						"EscrowCancel",
-						"EscrowCreate",
-						"EscrowFinish",
-						"NFTokenAcceptOffer",
-						"NFTokenBurn",
-						"NFTokenCancelOffer",
-						"NFTokenCreateOffer",
-						"NFTokenMint",
-						"OfferCancel",
-						"OfferCreate",
-						"Payment",
-						"PaymentChannelClaim",
-						"PaymentChannelCreate",
-						"PaymentChannelFund",
-						"SetRegularKey",
-						"SignerListSet",
-						"TicketCreate",
-						"TrustSet",
-						"UNLReport",
-						"Clawback",
-						"AMMBid",
-						"AMMCreate",
-						"AMMDelete",
-						"AMMDeposit",
-						"AMMVote",
-						"AMMWithdraw",
-						"DIDSet",
-						"DIDDelete",
-						"OracleSet",
-						"OracleDelete",
-						"NFTokenModify",
-						"CredentialCreate",
-						"CredentialAccept",
-						"CredentialDelete",
-						"MPTokenAuthorize",
-						"MPTokenIssuanceCreate",
-						"MPTokenIssuanceDestroy",
-						"MPTokenIssuanceSet",
-						"PermissionedDomainSet",
-						"PermissionedDomainDelete",
-						"AMMClawback",
-						"Batch",
-						"DelegateSet",
-						"LedgerStateFix",
-						"VaultCreate",
-						"VaultSet",
-						"VaultDelete",
-						"VaultDeposit",
-						"VaultWithdraw",
-						"VaultClawback",
-						"LoanBrokerSet",
-						"LoanBrokerDelete",
-						"LoanBrokerCoverDeposit",
-						"LoanBrokerCoverWithdraw",
-						"LoanBrokerCoverClawback",
-						"LoanSet",
-						"LoanDelete",
-						"LoanManage",
-						"LoanPay",
-						"XChainCreateClaimID",
-						"XChainCommit",
-						"XChainClaim",
-						"XChainAccountCreateCommit",
-						"XChainAddClaimAttestation",
-						"XChainAddAccountCreateAttestation",
-						"XChainModifyBridge",
-						"XChainCreateBridge"
-					]
+					"type": "string"
 				},
 				"count": {
 					"type": "integer"
@@ -362,6 +287,12 @@
 				},
 				"blackholed": {
 					"type": "boolean"
+				},
+				"pseudo": {
+					"type": "boolean"
+				},
+				"pseudoSource": {
+					"type": "string"
 				},
 				"props": {
 					"type": "array",
@@ -894,6 +825,155 @@
 			],
 			"index": [
 				["deleted"]
+			]
+		},
+		"UnknownLedgerEntryType": {
+			"type": "object",
+			"properties": {
+				"id": {
+					"type": "integer",
+					"id": true
+				},
+				"type": {
+					"type": "string"
+				},
+				"firstSeenLedger": {
+					"type": "integer"
+				},
+				"lastSeenLedger": {
+					"type": "integer"
+				},
+				"count": {
+					"type": "integer",
+					"default": 0
+				}
+			},
+			"required": [
+				"type"
+			],
+			"unique": [
+				"type"
+			]
+		},
+		"AmmPool": {
+			"type": "object",
+			"properties": {
+				"id": {
+					"type": "integer",
+					"id": true
+				},
+				"account": {
+					"$ref": "#/definitions/Account"
+				},
+				"asset1Token": {
+					"$ref": "#/definitions/Token"
+				},
+				"asset2Token": {
+					"$ref": "#/definitions/Token"
+				},
+				"lpTokenCurrency": {
+					"type": "string"
+				},
+				"tradingFee": {
+					"type": "integer"
+				},
+				"ledgerSequence": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"account",
+				"asset1Token",
+				"asset2Token"
+			],
+			"unique": [
+				"account"
+			]
+		},
+		"Vault": {
+			"type": "object",
+			"properties": {
+				"id": {
+					"type": "integer",
+					"id": true
+				},
+				"vaultId": {
+					"type": "string"
+				},
+				"owner": {
+					"$ref": "#/definitions/Account"
+				},
+				"pseudoAccount": {
+					"$ref": "#/definitions/Account"
+				},
+				"assetToken": {
+					"$ref": "#/definitions/Token"
+				},
+				"shareMptId": {
+					"type": "string"
+				},
+				"assetsTotal": {
+					"type": "xfl"
+				},
+				"assetsAvailable": {
+					"type": "xfl"
+				},
+				"assetsMaximum": {
+					"type": "xfl"
+				},
+				"flags": {
+					"type": "integer"
+				},
+				"ledgerSequence": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"vaultId",
+				"owner"
+			],
+			"unique": [
+				"vaultId"
+			]
+		},
+		"Oracle": {
+			"type": "object",
+			"properties": {
+				"id": {
+					"type": "integer",
+					"id": true
+				},
+				"oracleId": {
+					"type": "string"
+				},
+				"owner": {
+					"$ref": "#/definitions/Account"
+				},
+				"provider": {
+					"type": "string"
+				},
+				"assetClass": {
+					"type": "string"
+				},
+				"uri": {
+					"type": "string"
+				},
+				"lastUpdateTime": {
+					"type": "integer"
+				},
+				"priceDataCount": {
+					"type": "integer"
+				},
+				"ledgerSequence": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"oracleId",
+				"owner"
+			],
+			"unique": [
+				"oracleId"
 			]
 		}
 	}

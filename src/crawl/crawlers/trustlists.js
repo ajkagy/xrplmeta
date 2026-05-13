@@ -1,9 +1,9 @@
-import log from '@mwni/log'
-import { parse as parseXLS26 } from '@xrplkit/xls26'
+import log from '../../lib/log.js'
+import { parse as parseXLS26 } from '../../../vendor/xls26/xls26.js'
 import { scheduleGlobal } from '../schedule.js'
 import { createFetch } from '../../lib/fetch.js'
 import { diffMultiAccountProps, diffMultiTokenProps } from '../../db/helpers/props.js'
-import { currencyUTF8ToHex } from '@xrplkit/tokens'
+import { currencyUTF8ToHex } from '../../xrpl/tokens.js'
 import { issuerFromMPTIssuanceId } from '../../xrpl/mpt.js'
 import TokenType from '../../xrpl/tokentype.js'
 
@@ -46,7 +46,7 @@ async function crawlList({ ctx, id, url, fetchInterval = 600, trustLevel = 0, ig
 				try{
 					var { issuers: declaredIssuers, tokens: declaredTokens, issues, advisories } = parseXLS26(data)
 				}catch(error){
-					console.log(error)
+					log.debug(`trustlist [${id}] parse error:`, error)
 					throw error
 				}
 

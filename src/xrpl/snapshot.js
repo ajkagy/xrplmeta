@@ -1,5 +1,5 @@
-import log from '@mwni/log'
-import { wait } from '@xrplkit/time'
+import log from '../lib/log.js'
+import { wait } from '../lib/time.js'
 
 export async function start({ ctx, ledgerSequence, marker, node }){
 	if(ctx.log)

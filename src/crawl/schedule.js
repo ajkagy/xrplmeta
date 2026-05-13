@@ -1,5 +1,5 @@
-import log from '@mwni/log'
-import { unixNow, wait } from '@xrplkit/time'
+import log from '../lib/log.js'
+import { unixNow, wait } from '../lib/time.js'
 
 
 export async function scheduleGlobal({ ctx, task, interval, routine }){

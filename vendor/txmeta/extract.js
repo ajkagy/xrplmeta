@@ -1,0 +1,319 @@
+import { amountFromRippled, isSameToken } from '../../src/xrpl/tokens.js'
+import { sum, sub, div, mul, eq, gt, lt, abs } from '../xfl/wrappers/class.js'
+
+
+export function extractExchanges(tx, options={}){
+	let hash = tx.hash || tx.transaction?.hash || tx.tx?.hash
+	let taker = tx.Account || tx.transaction?.Account || tx.tx?.Account
+	let exchanges = []
+
+	let affectedNodes = (tx.meta || tx.metaData).AffectedNodes
+		.map(affected => affected.ModifiedNode || affected.DeletedNode)
+		.filter(node => !!node)
+
+	let affectedOffers = affectedNodes
+		.filter(node => node.LedgerEntryType === 'Offer')
+		.filter(node => node.PreviousFields && node.PreviousFields.TakerPays && node.PreviousFields.TakerGets)
+
+	for(let { PreviousFields, FinalFields } of affectedOffers){
+		let maker = FinalFields.Account
+		let sequence = FinalFields.Sequence
+		let previousTakerPays = amountFromRippled(PreviousFields.TakerPays)
+		let previousTakerGets = amountFromRippled(PreviousFields.TakerGets)
+		let finalTakerPays = amountFromRippled(FinalFields.TakerPays)
+		let finalTakerGets = amountFromRippled(FinalFields.TakerGets)
+
+		exchanges.push({
+			hash,
+			maker,
+			taker,
+			sequence,
+			takerPaid: {
+				...finalTakerPays,
+				value: sub(previousTakerPays.value, finalTakerPays.value).toString()
+			},
+			takerGot: {
+				...finalTakerGets,
+				value: sub(previousTakerGets.value, finalTakerGets.value).toString()
+			}
+		})
+	}
+
+	let txType = tx.TransactionType || tx.transaction?.TransactionType || tx.tx?.TransactionType
+	let isAMMLiquidityOperation = txType === 'AMMDeposit' || txType === 'AMMWithdraw'
+
+	let affectedAMMs = isAMMLiquidityOperation
+		? []
+		: affectedNodes
+			.filter(node => node.LedgerEntryType === 'AccountRoot')
+			.filter(node => node.FinalFields?.AMMID)
+
+	for(let { FinalFields, PreviousFields } of affectedAMMs){
+		let maker = FinalFields.Account
+		let amm = FinalFields.AMMID
+		let token
+		let delta
+
+		let xrpDelta = div(sub(FinalFields.Balance, PreviousFields.Balance), '1000000')
+
+		// XRP-IOU AMM pool consumption
+		let rippleState = affectedNodes
+			.filter(node => node.LedgerEntryType === 'RippleState')
+			.find(node => node.PreviousFields
+				&& (node.FinalFields.HighLimit.issuer === maker || node.FinalFields.LowLimit.issuer === maker))
+
+		if(rippleState){
+			let fields = rippleState.FinalFields
+			delta = sub(abs(fields.Balance.value), abs(rippleState.PreviousFields.Balance.value))
+			let iouToken = fields.HighLimit.issuer === maker
+				? fields.LowLimit
+				: fields.HighLimit
+
+			token = { currency: iouToken.currency, issuer: iouToken.issuer }
+		}
+
+		// XRP-MPT AMM pool consumption
+		if(!token){
+			let mptoken = affectedNodes
+				.filter(node => node.LedgerEntryType === 'MPToken')
+				.find(node => node.FinalFields.Account === maker)
+
+			if(mptoken){
+				let fields = mptoken.FinalFields
+				let previousAmount = mptoken.PreviousFields?.MPTAmount || '0'
+				delta = sub(fields.MPTAmount || '0', previousAmount)
+				token = { mpt_issuance_id: fields.MPTokenIssuanceID }
+			}
+		}
+
+		if(!token)
+			continue
+
+		let takerPaid
+		let takerGot
+
+		if(gt(xrpDelta, '0')){
+			takerPaid = {
+				currency: 'XRP',
+				value: xrpDelta.toString()
+			}
+			takerGot = {
+				...token,
+				value: abs(delta).toString()
+			}
+		}else{
+			takerPaid = {
+				...token,
+				value: delta.toString()
+			}
+			takerGot = {
+				currency: 'XRP',
+				value: abs(xrpDelta).toString()
+			}
+		}
+
+		exchanges.push({
+			hash,
+			maker,
+			taker,
+			amm,
+			takerPaid,
+			takerGot
+		})
+	}
+
+	if(options.collapse){
+		let collapsed = []
+
+		for(let e of exchanges){
+			let col = collapsed.find(c => 
+				isSameToken(c.takerPaid, e.takerPaid) 
+				&& isSameToken(c.takerGot, e.takerGot)
+			)
+
+			if(!col){
+				collapsed.push({
+					takerPaid: e.takerPaid,
+					takerGot: e.takerGot
+				})
+			}else{
+				col.takerPaid.value = sum(col.takerPaid.value, e.takerPaid.value).toString()
+				col.takerGot.value = sum(col.takerGot.value, e.takerGot.value).toString()
+			}
+		}
+
+		return collapsed
+	}
+
+	return exchanges
+}
+
+export function extractBalanceChanges(tx, options={}){
+	let parties = {}
+	let bookChange = ({currency, issuer, account, previous, final}) => {
+		if(previous === final)
+			return
+
+		let party = parties[account]
+
+		if(!party)
+			party = parties[account] = []
+
+		if(eq(previous, final))
+			return
+
+		if(party.some(e => e.currency === currency && e.issuer === issuer))
+			throw 'no way'
+
+		party.push({
+			currency,
+			issuer,
+			previous: previous.toString(),
+			final: final.toString(),
+			change: sub(final, previous).toString()
+		})
+	}
+
+	for(let affected of (tx.meta || tx.metaData).AffectedNodes){
+		let key = Object.keys(affected)[0]
+		let node = affected[key]
+		let finalFields = node.FinalFields || node.NewFields
+		let previousFields = node.PreviousFields
+
+
+		if(node.LedgerEntryType === 'RippleState'){
+			if(key === 'ModifiedNode' && !previousFields.Balance)
+				continue
+
+			let currency = finalFields.Balance.currency
+			let final = finalFields?.Balance?.value || '0'
+			let previous = previousFields?.Balance?.value || '0'
+			let issuer
+			let account
+
+			if(gt(previous, 0) || gt(final, 0)){
+				issuer = finalFields.HighLimit.issuer
+				account = finalFields.LowLimit.issuer
+			}else if(lt(previous, 0) || lt(final, 0)){
+				issuer = finalFields.LowLimit.issuer
+				account = finalFields.HighLimit.issuer
+				final = mul(final, -1)
+				previous = mul(previous, -1)
+			}
+
+			bookChange({
+				currency, 
+				issuer, 
+				account, 
+				previous,
+				final
+			})
+		}else if(node.LedgerEntryType === 'AccountRoot'){
+			if(!finalFields?.Balance || !previousFields?.Balance)
+				continue
+
+			let account = finalFields.Account
+			let final = div(finalFields.Balance, '1000000')
+			let previous = div(previousFields.Balance, '1000000')
+
+			if(options.ignoreTxFee)
+				final = sum(
+					final,
+					div(
+						tx.tx?.Fee || tx.Fee,
+						'1000000'
+					)
+				)
+
+			bookChange({
+				currency: 'XRP',
+				issuer: null, 
+				account, 
+				previous,
+				final
+			})
+		}
+	}
+
+	return parties
+}
+
+export function extractCurrenciesInvolved(tx){
+	let currencies = []
+	let add = entry => {
+		if(typeof entry === 'string')
+			entry = {currency: 'XRP'}
+
+		if(currencies.every(currency => !isSameToken(currency, entry))){
+			currencies.push(entry)
+		}
+	}
+
+	for(let node of (tx.meta || tx.metaData).AffectedNodes){
+		let nodeKey = Object.keys(node)[0]
+		let nodeData = node[nodeKey]
+		let fields = nodeData.FinalFields || nodeData.NewFields
+
+		if(fields && fields.TakerGets){
+			add(fields.TakerGets)
+			add(fields.TakerPays)
+		}
+	}
+
+	return currencies
+}
+
+export function extractAffectedNFT(tx){
+	let previousNFTs = []
+	let finalNFTs = []
+	let firstAccount
+
+	for(let { CreatedNode, ModifiedNode, DeletedNode } of (tx.meta || tx.metaData).AffectedNodes){
+		let node = CreatedNode || ModifiedNode || DeletedNode
+
+		if(node.LedgerEntryType !== 'NFTokenPage')
+			continue
+
+		let account = node.LedgerIndex.slice(0, 40)
+
+		if(firstAccount && firstAccount !== account)
+			continue
+
+		firstAccount = account
+
+		if(node.PreviousFields?.NFTokens)
+			previousNFTs.push(...node.PreviousFields.NFTokens.map(({ NFToken }) => NFToken))
+
+		if(node.FinalFields?.NFTokens)
+			finalNFTs.push(...node.FinalFields.NFTokens.map(({ NFToken }) => NFToken))
+	}
+
+	let [a, b] = finalNFTs.length > previousNFTs.length
+		? [finalNFTs, previousNFTs]
+		: [previousNFTs, finalNFTs]
+
+	return a.find(
+		n1 => b.every(
+			n2 => n1.NFTokenID !== n2.NFTokenID
+		)
+	)
+}
+
+// todo improve
+export function extractAffectedAccounts(tx){
+	let accounts = []
+
+	for(let node of (tx.meta || tx.metaData).AffectedNodes){
+		let nodeKey = Object.keys(node)[0]
+		let nodeData = node[nodeKey]
+		let fields = nodeData.FinalFields || nodeData.NewFields
+
+		if(!fields?.Account)
+			continue
+
+		if(!accounts.includes(fields.Account))
+			accounts.push(fields.Account)
+	}
+
+	return accounts
+}

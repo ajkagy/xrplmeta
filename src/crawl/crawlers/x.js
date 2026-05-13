@@ -1,4 +1,4 @@
-import log from '@mwni/log'
+import log from '../../lib/log.js'
 import { scheduleBatchedIterator } from '../schedule.js'
 import { createFetch } from '../../lib/fetch.js'
 import { writeAccountProps, writeTokenProps } from '../../db/helpers/props.js'

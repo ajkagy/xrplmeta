@@ -1,6 +1,6 @@
 import { expect } from 'chai'
 import { createPool } from '../../src/xrpl/nodepool.js'
-import log from '@mwni/log'
+import log from '../../src/lib/log.js'
 
 log.config({ level: 'error' })
 

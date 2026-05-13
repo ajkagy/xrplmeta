@@ -1,4 +1,4 @@
-import log from '@mwni/log'
+import log from '../lib/log.js'
 import { run as runLedgerApp } from './ledger.js'
 import { run as runCrawlApp } from './crawl.js'
 import { run as runCacheApp } from './cache.js'

@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { XFL } from '@xrplkit/xfl'
+import { XFL } from '../../vendor/xfl/wrappers/class.js'
 import { createContext } from './env.js'
 import { readBalance, writeBalance } from '../../src/db/helpers/balances.js'
 import { readTokenMetricSeries, writeTokenMetrics } from '../../src/db/helpers/tokenmetrics.js'

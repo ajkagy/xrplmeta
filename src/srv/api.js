@@ -2,6 +2,7 @@ import { sanitizeRange, sanitizePoint, sanitizeLimitOffset, sanitizeSourcePrefer
 import { sanitizeToken, sanitizeTokenListSortBy, sanitizeNameLike, sanitizeTrustLevels, sanitizeIOUToken } from './sanitizers/token.js'
 import { adjustServerInfoResponse, serveServerInfo } from './procedures/server.js'
 import { serveTokenSummary, serveTokenSeries, serveTokenList, subscribeTokenList, unsubscribeTokenList, serveTokenExchanges, serveTokenHolders, adjustTokenResponse, adjustTokensResponse } from './procedures/token.js'
+import { serveAmmList, serveAmmByAccount, serveAmmSeries } from './procedures/amm.js'
 import { serveLedger } from './procedures/ledger.js'
 import TokenType from '../xrpl/tokentype.js'
 import { addLedgerV1DeprecationWarning, addServerInfoV1DeprecationWarning, addTokenHoldersV1DeprecationWarning, addTokensV1DeprecationWarning, addTokenV1DeprecationWarning, addTokenExchangesV1DeprecationWarning } from './warnings/warning.js'
@@ -138,6 +139,30 @@ export const token_holders = compose([
 	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 100000 }),
 	serveTokenHolders()
 ])
+
+export const amms = compose([
+	sanitizePoint({ defaultToLatest: true }),
+	sanitizeLimitOffset({ defaultLimit: 50, maxLimit: 1000 }),
+	sanitizeOptionalToken({ key: 'token' }),
+	serveAmmList()
+])
+
+export const amm = compose([
+	sanitizePoint({ defaultToLatest: true }),
+	serveAmmByAccount()
+])
+
+export const amm_series = compose([
+	sanitizeRange({ withInterval: false, defaultToFullRange: true }),
+	serveAmmSeries()
+])
+
+function sanitizeOptionalToken({ key }){
+	return args => {
+		if(args[key] === undefined) return args
+		return sanitizeToken({ key, allowXRP: true })(args)
+	}
+}
 
 function compose(functions){
 	return args => functions.reduce(

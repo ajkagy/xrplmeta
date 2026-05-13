@@ -1,6 +1,6 @@
-import log from '@mwni/log'
-import { sub, mul, div, min, gt } from '@xrplkit/xfl'
-import { currencyHexToUTF8 } from '@xrplkit/tokens'
+import log from '../lib/log.js'
+import { sub, mul, div, min, gt } from '../../vendor/xfl/wrappers/class.js'
+import { currencyHexToUTF8 } from '../xrpl/tokens.js'
 import { readLedgerAt, readMostRecentLedger } from '../db/helpers/ledgers.js'
 import { readTokenMetrics } from '../db/helpers/tokenmetrics.js'
 import { readTokenExchangeAligned, readTokenExchangeCount, readTokenExchangeUniqueTakerCount, readTokenVolume } from '../db/helpers/tokenexchanges.js'
@@ -301,7 +301,9 @@ export function getCommonTokenCacheFields({ ctx, token }){
 		tokenCurrencyHex: token.tokenType === TokenType.IOU ? token.currency : undefined,
 		tokenCurrencyUtf8: token.tokenType === TokenType.IOU ? currencyHexToUTF8(token.currency) : undefined,
 		mptIssuanceId: token.mptIssuanceId,
-		issuerAddress: token.issuer.address
+		issuerAddress: token.issuer.address,
+		issuerPseudo: !!token.issuer.pseudo,
+		issuerPseudoSource: token.issuer.pseudoSource || undefined
 	}
 }
 

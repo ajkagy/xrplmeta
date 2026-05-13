@@ -1,4 +1,4 @@
-import { isSameToken } from '@xrplkit/tokens'
+import { isSameToken } from '../../xrpl/tokens.js'
 import { readTokenMetrics } from './tokenmetrics.js'
 import { 
 	markCacheDirtyForAccountIcons, 

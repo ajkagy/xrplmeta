@@ -1,4 +1,4 @@
-import { extractExchanges } from '@xrplkit/txmeta'
+import { extractExchanges } from '../../../vendor/txmeta/extract.js'
 import { markCacheDirtyForTokenExchanges } from '../../cache/todo.js'
 import TokenType from '../../xrpl/tokentype.js'
 

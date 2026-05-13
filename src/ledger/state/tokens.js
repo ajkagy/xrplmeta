@@ -1,10 +1,14 @@
-import { sum, sub, eq, lt, gt, neg, max } from '@xrplkit/xfl'
+import { sum, sub, eq, lt, gt, neg, max } from '../../../vendor/xfl/wrappers/class.js'
 import { writeBalance } from '../../db/helpers/balances.js'
 import { writeTokenMetrics, readTokenMetrics } from '../../db/helpers/tokenmetrics.js'
 import TokenType from '../../xrpl/tokentype.js'
+import { isPseudoAccount } from './pseudoaccounts.js'
 
 
 export function parse({ entry }){
+	if(!entry.HighLimit || !entry.LowLimit || !entry.Balance)
+		return undefined
+
 	let lowIssuer = entry.HighLimit.value !== '0' || lt(entry.Balance.value, '0')
 	let highIssuer = entry.LowLimit.value !== '0' || gt(entry.Balance.value, '0')
 	let transformed = {}
@@ -93,30 +97,37 @@ export function diff({ ctx, token, deltas }){
 	}
 
 	for(let { previous, final } of deltas){
+		let holderAddress = final?.account?.address || previous?.account?.address
+		let pseudo = isPseudoAccount({ ctx, address: holderAddress })
+
 		if(previous && final){
 			metrics.supply = sum(
 				metrics.supply,
 				sub(final.balance, previous.balance)
 			)
 
-			if(eq(previous.balance, 0) && gt(final.balance, 0)){
-				metrics.holders++
-			}else if(eq(final.balance, 0) && gt(previous.balance, 0)){
-				metrics.holders--
+			if(!pseudo){
+				if(eq(previous.balance, 0) && gt(final.balance, 0)){
+					metrics.holders++
+				}else if(eq(final.balance, 0) && gt(previous.balance, 0)){
+					metrics.holders--
+				}
 			}
 		}else if(final){
 			metrics.trustlines++
 
 			if(gt(final.balance, 0)){
 				metrics.supply = sum(metrics.supply, final.balance)
-				metrics.holders++
+				if(!pseudo)
+					metrics.holders++
 			}
 		}else{
 			metrics.trustlines--
 
 			if(gt(previous.balance, 0)){
 				metrics.supply = sub(metrics.supply, previous.balance)
-				metrics.holders--
+				if(!pseudo)
+					metrics.holders--
 			}
 		}
 

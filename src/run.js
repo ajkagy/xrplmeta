@@ -1,5 +1,5 @@
-import minimist from 'minimist'
-import log from '@mwni/log'
+import log from './lib/log.js'
+import { parseCliArgs } from './lib/args.js'
 import { find as findConfig } from './lib/config.js'
 import { load as loadConfig } from './lib/config.js'
 import { override as overrideConfig } from './lib/config.js'
@@ -9,7 +9,7 @@ import backup from './cmd/backup.js'
 import version from './lib/version.js'
 
 
-const args = minimist(process.argv.slice(2))
+const args = parseCliArgs(process.argv.slice(2))
 const configPath = args.config
 	? args.config
 	: findConfig()

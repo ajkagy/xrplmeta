@@ -1,10 +1,52 @@
-import log from '@mwni/log'
+import log from '../lib/log.js'
 import Koa from 'koa'
 import websocket from 'koa-easy-ws'
 import json from 'koa-json'
+import { RateLimiter } from 'limiter'
 import { createRouter } from './http.js'
 import { createManager } from './ws.js'
 import { spawnWorkers } from './worker.js'
+
+
+const WS_MAX_PAYLOAD = 1 * 1024 * 1024              // 1 MiB
+const DEFAULT_RATE_LIMIT_PER_MINUTE = 240            // 4 req/sec/IP average
+
+
+function createRateLimitMiddleware({ perMinute }){
+	let buckets = new Map()
+	let lastSweep = Date.now()
+
+	return async (ctx, next) => {
+		let now = Date.now()
+		if(now - lastSweep > 60_000){
+			for(let [ip, bucket] of buckets){
+				if(now - bucket.lastUse > 5 * 60_000)
+					buckets.delete(ip)
+			}
+			lastSweep = now
+		}
+
+		let ip = ctx.request.ip || 'unknown'
+		let bucket = buckets.get(ip)
+		if(!bucket){
+			bucket = {
+				limiter: new RateLimiter({ tokensPerInterval: perMinute, interval: 'minute' }),
+				lastUse: now
+			}
+			buckets.set(ip, bucket)
+		}
+		bucket.lastUse = now
+
+		let remaining = await bucket.limiter.removeTokens(1).catch(() => -1)
+		if(remaining < 0){
+			ctx.status = 429
+			ctx.body = { error: 'rate_limited', message: 'too many requests' }
+			return
+		}
+
+		await next()
+	}
+}
 
 
 export async function startServer({ ctx }){
@@ -34,7 +76,11 @@ export async function startServer({ ctx }){
 	let router = createRouter({ ctx })
 	let ws = createManager({ ctx })
 
-	koa.use(websocket())
+	let rateLimit = ctx.config.server.rateLimitPerMinute ?? DEFAULT_RATE_LIMIT_PER_MINUTE
+	if(rateLimit > 0)
+		koa.use(createRateLimitMiddleware({ perMinute: rateLimit }))
+
+	koa.use(websocket({ maxPayload: ctx.config.server.wsMaxPayloadBytes ?? WS_MAX_PAYLOAD }))
 	koa.use(async (ctx, next) => {
 		ctx.req.on('error', error => {
 			log.debug(`client error: ${error.message}`)

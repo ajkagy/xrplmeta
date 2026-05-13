@@ -1,4 +1,4 @@
-import { eq } from '@xrplkit/xfl'
+import { eq } from '../../../vendor/xfl/wrappers/class.js'
 import { readPoint, writePoint } from './common.js'
 
 

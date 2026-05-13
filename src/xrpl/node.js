@@ -1,6 +1,6 @@
 import EventEmitter from 'events'
-import createSocket from '@xrplkit/socket'
-import log from '@mwni/log'
+import createSocket from './socket.js'
+import log from '../lib/log.js'
 
 
 export default class Node extends EventEmitter{

@@ -70,6 +70,13 @@
 				"issuerProps": {
 					"type": "any"
 				},
+				"issuerPseudo": {
+					"type": "boolean",
+					"default": false
+				},
+				"issuerPseudoSource": {
+					"type": "string"
+				},
 				"cachedIcons": {
 					"type": "any"
 				},
@@ -216,6 +223,7 @@
 				"tokenName",
 				"issuerAddress",
 				"issuerName",
+				"issuerPseudo",
 				"trustLevel",
 				"trustlines",
 				"trustlinesDelta24H",

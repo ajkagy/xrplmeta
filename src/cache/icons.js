@@ -1,9 +1,9 @@
 import fs from 'fs'
 import path from 'path'
 import sharp from 'sharp'
-import log from '@mwni/log'
+import log from '../lib/log.js'
 import { createHash } from 'crypto'
-import { unixNow } from '@xrplkit/time'
+import { unixNow } from '../lib/time.js'
 import { readAccountProps, readTokenProps } from '../db/helpers/props.js'
 import { validate as validateURL } from '../lib/url.js'
 import { createFetch } from '../lib/fetch.js'
@@ -238,7 +238,10 @@ function unlinkCachedIconFromTokenCache({ ctx, token, url }){
 }
 
 async function downloadAndProcessIcon({ ctx, url }){
-	let fetch = createFetch()
+	if(!validateURL(url))
+		throw new Error(`refused to fetch unsafe URL: ${url}`)
+
+	let fetch = createFetch({ validateUrls: true })
 	let res = await fetch(url, { raw: true })
 	let mime = res.headers.get('content-type')
 	let fileType = mimeTypes[mime]

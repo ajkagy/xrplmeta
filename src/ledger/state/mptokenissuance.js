@@ -1,7 +1,7 @@
 import { clearTokenProps, writeAccountProps, writeTokenProps } from "../../db/helpers/props.js"
 import { mptIssuanceIdFromIssuerAndSequence } from "../../xrpl/mpt.js"
 import TokenType from "../../xrpl/tokentype.js"
-import { parse as parseXLS89 } from '@xrplkit/xls89'
+import { parse as parseXLS89 } from '../../xrpl/xls89.js'
 
 export function parse({ entry }){
     return {
@@ -34,7 +34,8 @@ export function diff({ ctx, ledgerSequence, transactionIndex, previous, final })
 
     // Parse and persist metadata when applying ledger state
     if (ledgerSequence == null || transactionIndex == null) {
-        updateTokenAndAccountProps({ctx, token, mptokenMetadata: final.mptokenMetadata, overwriteIssuerNameProp: true})
+        if(final?.mptokenMetadata)
+            updateTokenAndAccountProps({ctx, token, mptokenMetadata: final.mptokenMetadata, overwriteIssuerNameProp: true})
         return
     }
 
@@ -111,6 +112,9 @@ export function diff({ ctx, ledgerSequence, transactionIndex, previous, final })
 }
 
 function updateTokenAndAccountProps({ctx, token, mptokenMetadata, overwriteIssuerNameProp}) {
+    if(!mptokenMetadata)
+        return
+
     let {token: props} = parseXLS89(mptokenMetadata)
     clearTokenProps({
         ctx,

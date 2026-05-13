@@ -1,7 +1,8 @@
-import { div, mul } from '@xrplkit/xfl'
-import { isSameToken } from '@xrplkit/tokens'
+import { div, mul } from '../../../vendor/xfl/wrappers/class.js'
+import { isSameToken } from '../../xrpl/tokens.js'
 import { readTokenExchangeIntervalSeries, readTokenExchangesAligned } from '../../db/helpers/tokenexchanges.js'
 import { readTokenMetricIntervalSeries, readTokenMetrics } from '../../db/helpers/tokenmetrics.js'
+import { readAmmPoolByAccount } from '../../db/helpers/amm.js'
 import { sanitize as sanitizeUrl } from '../../lib/url.js'
 import { readTokenHolders } from '../../db/helpers/tokenholders.js'
 import TokenType from '../../xrpl/tokentype.js'
@@ -19,6 +20,8 @@ export function serveTokenList({ tokenType } = {}){
 		include_changes,
 		original_icons,
 		expand_meta,
+		exclude_pools,
+		only_pools,
 		limit,
 		offset
 	}) => {
@@ -32,12 +35,17 @@ export function serveTokenList({ tokenType } = {}){
 				default_sort_by = 'trustlines'
 			}
 		}
-		
+
 		if(trust_levels){
 			where.trustLevel = {
 				in: trust_levels
 			}
 		}
+
+		if(only_pools)
+			where.issuerPseudo = true
+		else if(exclude_pools)
+			where.issuerPseudo = false
 
 		if(name_like){
 			where.OR = [
@@ -316,7 +324,10 @@ export function serveTokenHolders(){
 				({ account, balance }) => ({
 					account: account.address,
 					balance: balance.toString(),
-					percent: parseFloat(mul(div(balance, supply), 100).toString())
+					percent: parseFloat(mul(div(balance, supply), 100).toString()),
+					...(account.pseudo
+						? { pool: true, pool_source: account.pseudoSource }
+						: {})
 				})
 			),
 			ledgerSequence: sequence
@@ -426,13 +437,38 @@ export function formatTokenCache({
 	}
 
 	if (token.token_type === TokenType.IOU){
-		delete token.mpt_issuance_id		
+		delete token.mpt_issuance_id
 	}else if(token.token_type === TokenType.MPT){
 		delete token.currency
 		delete token.metrics.trustlines
 		if (includeChanges){
 			delete token.metrics.changes['24h'].trustlines
 			delete token.metrics.changes['7d'].trustlines
+		}
+	}
+
+	if(cache.issuerPseudo){
+		token.pool = {
+			source: cache.issuerPseudoSource || 'unknown'
+		}
+
+		// Best-effort: attach live AMM pool composition if the issuer's account is registered as an AMM
+		if(cache.issuerPseudoSource === 'amm' && cache.issuerAddress){
+			let ammPool = null
+			try{
+				ammPool = readAmmPoolByAccount({ ctx, address: cache.issuerAddress })
+			}catch{
+				// table may not exist (rebuilt-cache mode, missing migration, etc.) — ignore
+			}
+			if(ammPool){
+				token.pool.account = ammPool.account
+				token.pool.asset1 = ammPool.asset1
+				token.pool.asset2 = ammPool.asset2
+				token.pool.trading_fee = ammPool.tradingFee
+				token.pool.asset1_balance = ammPool.asset1Balance
+				token.pool.asset2_balance = ammPool.asset2Balance
+				token.pool.lp_token_currency = ammPool.lpTokenCurrency
+			}
 		}
 	}
 

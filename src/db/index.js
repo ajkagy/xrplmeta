@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import createStructDB from '@structdb/sqlite'
+import createStructDB from '../../vendor/structdb/index.js'
 import codecs from './codecs/index.js'
 import TokenType from '../xrpl/tokentype.js'
 
@@ -43,23 +43,25 @@ export async function openCoreDB({ ctx, readOnly=false, inMemory=false }){
 
 	db.loadExtension(
 		path.join(
-			__dirname, 
-			'..', 
-			'..', 
-			'deps', 
-			'build', 
-			'Release', 
+			__dirname,
+			'..',
+			'..',
+			'deps',
+			'build',
+			'Release',
 			'sqlite-xfl.node'
 		)
 	)
 
-	db.tokens.createOne({
-		data: {
-			currency: 'XRP',
-			issuer: null,
-			tokenType: TokenType.XRP
-		}
-	})
+	if(!readOnly){
+		db.tokens.createOne({
+			data: {
+				currency: 'XRP',
+				issuer: null,
+				tokenType: TokenType.XRP
+			}
+		})
+	}
 
 	return db
 }

@@ -1,5 +1,5 @@
-import log from '@mwni/log'
-import { spawn } from '@mwni/workers'
+import log from '../lib/log.js'
+import { spawn } from '../lib/workers.js'
 import { applyLedgerEvents } from './events/index.js'
 import { applyLedgerStateFromTransactions } from './state/index.js'
 import { updateDerived } from './derived/index.js'

@@ -1,8 +1,8 @@
 import fs from 'fs'
 import path from 'path'
-import minimist from 'minimist'
 import { fileURLToPath } from 'url'
-import log from '@mwni/log'
+import log from '../../src/lib/log.js'
+import { parseCliArgs } from '../../src/lib/args.js'
 import { find as findConfig } from '../../src/lib/config.js'
 import { load as loadConfig } from '../../src/lib/config.js'
 import { override as overrideConfig } from '../../src/lib/config.js'
@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 
-const args = minimist(process.argv.slice(2))
+const args = parseCliArgs(process.argv.slice(2))
 const component = args._[0]
 const configPath = args.config
 	? args.config

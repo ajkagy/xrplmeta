@@ -1,4 +1,4 @@
-import log from '@mwni/log'
+import log from '../../lib/log.js'
 import { scheduleGlobal } from '../schedule.js'
 import { createFetch } from '../../lib/fetch.js'
 import { diffMultiAccountProps } from '../../db/helpers/props.js'

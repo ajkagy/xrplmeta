@@ -1,4 +1,4 @@
-import { currencyUTF8ToHex } from '@xrplkit/tokens'
+import { currencyUTF8ToHex } from '../../xrpl/tokens.js'
 import { isValidClassicAddress } from 'ripple-address-codec'
 import { isValidMPTIssuanceId } from '../../xrpl/mpt.js'
 import TokenType from '../../xrpl/tokentype.js'
@@ -207,6 +207,14 @@ export function sanitizeNameLike(){
 					expose: true
 				}
 			}
+
+			if(name_like.length > 100){
+				throw {
+					type: `invalidParam`,
+					message: `The name_like term must be at most 100 characters.`,
+					expose: true
+				}
+			}
 		}
 
 		return {
@@ -230,7 +238,17 @@ export function sanitizeTrustLevels(){
 				}
 			}
 
-			trust_levels = trust_levels.map(level => parseInt(level))
+			trust_levels = trust_levels.map(level => {
+				let n = typeof level === 'number' ? level : parseInt(level, 10)
+				if(!Number.isFinite(n)){
+					throw {
+						type: `invalidParam`,
+						message: `Each trust level must be a number.`,
+						expose: true
+					}
+				}
+				return n
+			})
 
 			if(trust_levels.some(level => level < 0 || level > 3)){
 				throw {

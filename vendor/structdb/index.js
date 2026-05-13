@@ -1,0 +1,1 @@
+export { createStructDB as default } from './client.js'

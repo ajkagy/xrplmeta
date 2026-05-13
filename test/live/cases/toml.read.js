@@ -1,5 +1,5 @@
-import log from '@mwni/log'
-import { parse as parseXLS26 } from '@xrplkit/xls26'
+import log from '../../../src/lib/log.js'
+import { parse as parseXLS26 } from '../../../vendor/xls26/xls26.js'
 import { createFetch } from '../../../src/lib/fetch.js'
 import { fetchToml } from '../../../src/crawl/crawlers/domains.js'
 

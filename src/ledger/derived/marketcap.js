@@ -1,5 +1,5 @@
-import log from '@mwni/log'
-import { mul } from '@xrplkit/xfl'
+import log from '../../lib/log.js'
+import { mul } from '../../../vendor/xfl/wrappers/class.js'
 import { readTokenMetricSeries, readTokenMetrics, writeTokenMetrics } from '../../db/helpers/tokenmetrics.js'
 import { readTokenExchangeAligned, alignTokenExchange } from '../../db/helpers/tokenexchanges.js'
 

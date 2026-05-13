@@ -1,8 +1,9 @@
 import { writeBalance } from "../../db/helpers/balances.js"
 import { readTokenMetrics, writeTokenMetrics } from "../../db/helpers/tokenmetrics.js"
-import { eq, gt, sum, sub } from "@xrplkit/xfl"
+import { eq, gt, sum, sub } from '../../../vendor/xfl/wrappers/class.js'
 import { issuerFromMPTIssuanceId } from "../../xrpl/mpt.js"
 import TokenType from "../../xrpl/tokentype.js"
+import { isPseudoAccount } from "./pseudoaccounts.js"
 
 export function parse({ entry }){
     return {
@@ -15,11 +16,9 @@ export function parse({ entry }){
 }
 
 export function diff({ ctx, previous, final }){
-    if (ctx.backwards)
-        return
-
     let account = final?.account || previous?.account
     let mptIssuanceId = final?.mptIssuanceId || previous?.mptIssuanceId
+    let pseudo = isPseudoAccount({ ctx, address: account })
 
     let token = ctx.db.core.tokens.createOne({
         data: {
@@ -29,7 +28,6 @@ export function diff({ ctx, previous, final }){
         }
     })
 
-    // Read current metrics
     let { holders, supply } = readTokenMetrics({
         ctx,
         token,
@@ -42,35 +40,43 @@ export function diff({ ctx, previous, final }){
         supply: supply || 0,
     }
 
-    // Update metrics based on MPTAmount changes
     if(previous && final){
         metrics.supply = sum(
             metrics.supply,
             sub(final.mptAmount, previous.mptAmount)
         )
 
-        if(eq(previous.mptAmount, 0) && gt(final.mptAmount, 0)){
-            metrics.holders++
-        }else if(eq(final.mptAmount, 0) && gt(previous.mptAmount, 0)){
-            metrics.holders--
+        if(!pseudo){
+            if(eq(previous.mptAmount, 0) && gt(final.mptAmount, 0)){
+                metrics.holders++
+            }else if(eq(final.mptAmount, 0) && gt(previous.mptAmount, 0)){
+                metrics.holders--
+            }
         }
     }else if(final){
-        // Created: increment holders if MPTAmount > 0
         metrics.supply = sum(metrics.supply, final.mptAmount)
 
-        if(gt(final.mptAmount, 0)){
+        if(!pseudo && gt(final.mptAmount, 0)){
             metrics.holders++
         }
     }else{
-        // Deleted: decrement holders if MPTAmount was > 0
         metrics.supply = sub(metrics.supply, previous.mptAmount)
 
-        if(gt(previous.mptAmount, 0)){
+        if(!pseudo && gt(previous.mptAmount, 0)){
             metrics.holders--
         }
     }
 
-    // Write balance
+    if(ctx.backwards && !previous){
+        writeBalance({
+            ctx,
+            account: { address: account },
+            token,
+            ledgerSequence: ctx.ledgerSequence,
+            balance: 0,
+        })
+    }
+
     if(final){
         writeBalance({
             ctx,
@@ -89,6 +95,5 @@ export function diff({ ctx, previous, final }){
         })
     }
 
-    // Write metrics
     writeTokenMetrics({ ctx, token, metrics, ledgerSequence: ctx.ledgerSequence })
 }

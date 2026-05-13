@@ -1,5 +1,5 @@
-import log from '@mwni/log'
-import { XFL, toSortSafeBigInt } from '@xrplkit/xfl'
+import log from '../../lib/log.js'
+import { XFL, toSortSafeBigInt } from '../../../vendor/xfl/wrappers/class.js'
 
 export default {
 	acceptsFormat: 'xrpl/xfl',

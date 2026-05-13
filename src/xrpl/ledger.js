@@ -1,8 +1,8 @@
-import { rippleToUnix } from '@xrplkit/time'
+import { rippleToUnix } from '../lib/time.js'
 
 export async function fetch({ ctx, sequence }){
-	let { result } = await ctx.xrpl.request({ 
-		command: 'ledger', 
+	let { result } = await ctx.xrpl.request({
+		command: 'ledger',
 		ledger_index: sequence,
 		transactions: true,
 		expand: true
@@ -13,7 +13,7 @@ export async function fetch({ ctx, sequence }){
 
 export function format(ledger){
 	return {
-		sequence: parseInt(ledger.ledger_index),
+		sequence: parseInt(ledger.ledger_index, 10),
 		hash: ledger.ledger_hash,
 		closeTime: rippleToUnix(ledger.close_time || ledger.ledger_time),
 		transactions: ledger.transactions

@@ -2,12 +2,31 @@ import os from 'os'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import log from '@mwni/log'
-import { parse as parseToml } from '@xrplkit/toml'
+import log from './log.js'
+import { parse as parseToml } from 'smol-toml'
 
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+
+function toCamelCase(str){
+	return str.toLowerCase().replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase())
+}
+
+function camelKeys(value){
+	if(Array.isArray(value))
+		return value.map(camelKeys)
+
+	if(value && typeof value === 'object' && value.constructor === Object){
+		let out = {}
+		for(let [key, v] of Object.entries(value))
+			out[toCamelCase(key)] = camelKeys(v)
+		return out
+	}
+
+	return value
+}
 
 export function find(){
 	let preferredPath = path.join(os.homedir(), '.xrplmeta', 'config.toml')
@@ -31,11 +50,25 @@ export function load(file, createIfMissing){
 	}
 
 	let content = fs.readFileSync(file, 'utf-8')
-	let config = parseToml(content, 'camelCase')
+	let config = camelKeys(parseToml(content))
 
-	// schema checks here
+	validate(config)
 
 	return config
+}
+
+
+function validate(config){
+	if(!config.node || typeof config.node.dataDir !== 'string')
+		throw new Error(`config: [NODE].data_dir must be a string path`)
+
+	if(config.server){
+		if(typeof config.server.port !== 'number' || config.server.port < 0 || config.server.port > 65535)
+			throw new Error(`config: [SERVER].port must be a port number 0..65535`)
+	}
+
+	if(!config.ledger || !Array.isArray(config.ledger.source) || config.ledger.source.length === 0)
+		log.warn(`config: no [[LEDGER.SOURCE]] entries — indexer cannot connect to a rippled/clio node`)
 }
 
 export function create(file){

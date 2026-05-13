@@ -9,8 +9,8 @@ export function isBlackholed(ledgerEntry){
 	if(!blackholeAccounts.includes(ledgerEntry.RegularKey))
 		return false
 
-	// master key disabled
-	if(ledgerEntry.Flags & 0x00100000 == 0)
+	// master key must be disabled (lsfDisableMaster = 0x00100000)
+	if((ledgerEntry.Flags & 0x00100000) === 0)
 		return false
 
 	return true

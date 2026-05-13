@@ -1,4 +1,4 @@
-import log from '@mwni/log'
+import log from '../../lib/log.js'
 import * as accounts from './accounts.js'
 import * as tokens from './tokens.js'
 import * as tokenOffers from './tokenoffers.js'
@@ -6,6 +6,10 @@ import * as nfts from './nfts.js'
 import * as nftOffers from './nftoffers.js'
 import * as mptokenIssuance from './mptokenissuance.js'
 import * as mptoken from './mptoken.js'
+import * as amm from './amm.js'
+import * as vault from './vault.js'
+import * as oracle from './oracle.js'
+import { collectPseudoFromDeltas } from './pseudoaccounts.js'
 
 const ledgerEntryModules = {
 	AccountRoot: accounts,
@@ -14,21 +18,89 @@ const ledgerEntryModules = {
 	NFTokenPage: nfts,
 	NFTokenOffer: nftOffers,
 	MPTokenIssuance: mptokenIssuance,
-	MPToken: mptoken
+	MPToken: mptoken,
+	AMM: amm,
+	Vault: vault,
+	Oracle: oracle
+}
+
+// Ledger entry types we intentionally ignore — typed below so unknown types still get reported.
+const ignoredEntryTypes = new Set([
+	'DirectoryNode',
+	'LedgerHashes',
+	'FeeSettings',
+	'Amendments',
+	'NegativeUNL',
+	'SignerList',
+	'Ticket',
+	'DepositPreauth',
+	'Escrow',
+	'Check',
+	'PayChannel',
+	'DID',
+	'Credential',
+	'CredentialIssuer',
+	'PermissionedDomain',
+	'Delegate',
+	'Bridge',
+	'XChainOwnedClaimID',
+	'XChainOwnedCreateAccountClaimID',
+	'Loan',
+	'LoanBroker'
+])
+
+let warnedUnknown = new Set()
+
+function recordUnknownEntryType({ ctx, type }){
+	if(ignoredEntryTypes.has(type) || ledgerEntryModules[type])
+		return
+
+	let seq = ctx.ledgerSequence ?? ctx.currentLedger?.sequence ?? 0
+
+	if(!warnedUnknown.has(type)){
+		warnedUnknown.add(type)
+		log.warn(`unknown LedgerEntryType "${type}" — likely from a new amendment. Recording for follow-up.`)
+	}
+
+	try{
+		let existing = ctx.db?.core?.unknownLedgerEntryTypes?.readOne({ where: { type } })
+		if(existing){
+			ctx.db.core.unknownLedgerEntryTypes.updateOne({
+				data: {
+					lastSeenLedger: seq,
+					count: (existing.count || 0) + 1
+				},
+				where: { id: existing.id }
+			})
+		}else{
+			ctx.db?.core?.unknownLedgerEntryTypes?.createOne({
+				data: {
+					type,
+					firstSeenLedger: seq,
+					lastSeenLedger: seq,
+					count: 1
+				}
+			})
+		}
+	}catch{
+		// Table might not exist on older databases — best effort only.
+	}
 }
 
 
 export function applyLedgerStateFromObjects({ ctx, objects }){
+	let deltas = objects.map(entry => ({
+		type: entry.LedgerEntryType,
+		index: entry.index,
+		final: {
+			...entry,
+			LedgerSequence: entry.PreviousTxnLgrSeq
+		}
+	}))
+
 	return applyDeltas({
-		ctx,
-		deltas: objects.map(entry => ({ 
-			type: entry.LedgerEntryType,
-			index: entry.index,
-			final: {
-				...entry,
-				LedgerSequence: entry.PreviousTxnLgrSeq
-			} 
-		}))
+		ctx: withPseudoContext(ctx, deltas),
+		deltas
 	})
 }
 
@@ -86,6 +158,9 @@ export function applyLedgerStateFromTransactions({ ctx, ledger }){
 					}
 				})
 			}else if(DeletedNode){
+				if(DeletedNode.LedgerEntryType === 'DirectoryNode')
+					continue
+
 				deltas.push({
 					type: DeletedNode.LedgerEntryType,
 					index: DeletedNode.LedgerIndex,
@@ -94,7 +169,7 @@ export function applyLedgerStateFromTransactions({ ctx, ledger }){
 					previous: {
 						...DeletedNode.FinalFields,
 						...DeletedNode.PreviousFields,
-						LedgerSequence: DeletedNode.FinalFields.PreviousTxnLgrSeq
+						LedgerSequence: DeletedNode.FinalFields?.PreviousTxnLgrSeq ?? ledger.sequence
 					}
 				})
 			}
@@ -102,17 +177,26 @@ export function applyLedgerStateFromTransactions({ ctx, ledger }){
 	}
 
 	if(ctx.backwards){
+		let reversed = deltas
+			.map(({ type, index, ledgerSequence, transactionIndex, previous, final }) => ({ type, index, ledgerSequence, transactionIndex, previous: final, final: previous }))
+			.reverse()
 		return applyDeltas({
-			ctx,
-			deltas: deltas
-				.map(({ type, index, ledgerSequence, transactionIndex, previous, final }) => ({ type, index, ledgerSequence, transactionIndex, previous: final, final: previous }))
-				.reverse(),
+			ctx: withPseudoContext(ctx, reversed),
+			deltas: reversed
 		})
 	}else{
 		return applyDeltas({
-			ctx,
+			ctx: withPseudoContext(ctx, deltas),
 			deltas
 		})
+	}
+}
+
+function withPseudoContext(ctx, deltas){
+	return {
+		...ctx,
+		pseudoAccounts: collectPseudoFromDeltas(deltas),
+		pseudoAccountsCache: new Map()
 	}
 }
 
@@ -123,8 +207,10 @@ function applyDeltas({ ctx, deltas }){
 	for(let { type, index, ledgerSequence, transactionIndex, previous, final } of deltas){
 		let module = ledgerEntryModules[type]
 
-		if(!module)
+		if(!module){
+			recordUnknownEntryType({ ctx, type })
 			continue
+		}
 
 		if(module.skip && module.skip({ ctx }))
 			continue

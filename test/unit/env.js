@@ -1,7 +1,7 @@
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
-import log from '@mwni/log'
+import log from '../../src/lib/log.js'
 import { openDB } from '../../src/db/index.js'
 
 export async function createContext({ debugQueries=false }={}){

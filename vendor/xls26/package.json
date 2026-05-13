@@ -1,0 +1,16 @@
+{
+    "name": "@xrplkit/xls26",
+    "type": "module",
+    "version": "2.6.0",
+    "main": "xls26.js",
+    "dependencies": {
+        "@xrplkit/toml": "1.0.0"
+    },
+    "keywords": [
+        "xrpl",
+        "xls-26",
+        "parser",
+        "metadata",
+        "tokens"
+    ]
+}
