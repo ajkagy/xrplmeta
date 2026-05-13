@@ -1,9 +1,9 @@
 // Lightweight logger compatible with @mwni/log surface area used by the codebase.
 //   log.info / warn / error / debug (variadic args, formatted with util.inspect)
-//   log.config({ level, dir?, root? })
+//   log.config({ level })
 //   log.time.LEVEL(label, ...msg)            // call once with label to start; again with label + msg to log elapsed
-//   log.accumulate.LEVEL({ text, data })     // batches messages and counters until flush
-//   log.flush()                               // emits accumulated lines
+//   log.accumulate.LEVEL({ text, data })     // batches messages + counters; auto-flushes periodically
+//   log.flush()                               // emits accumulated lines immediately
 //   log.pipe(transport)                       // forward log records to another log instance (no-op here)
 
 import util from 'node:util'
@@ -11,9 +11,15 @@ import util from 'node:util'
 const LEVELS = ['debug', 'info', 'warn', 'error']
 const LEVEL_INDEX = Object.fromEntries(LEVELS.map((l, i) => [l, i]))
 
+// Auto-flush accumulators every N ms so long-running batched workloads (snapshot,
+// backfill catch-up) still show progress instead of going silent until something
+// else triggers a flush.
+const ACCUMULATE_AUTOFLUSH_MS = 5_000
+
 let currentLevel = LEVEL_INDEX.info
 let timers = new Map()
-let accumulators = {}   // level -> { text: string[], data: { key: number } }
+let accumulators = {}     // level -> { text: string[], data: { key: number }, startedAt: bigint }
+let autoFlushTimer = null
 
 function format(args){
 	return args
@@ -44,7 +50,7 @@ function timeMethod(level){
 		}
 		let start = timers.get(label)
 		let elapsed = start
-			? `${Number(process.hrtime.bigint() - start) / 1e6 | 0}ms`
+			? formatElapsed(process.hrtime.bigint() - start)
 			: '?'
 		timers.delete(label)
 		let rendered = msg
@@ -54,9 +60,32 @@ function timeMethod(level){
 	}
 }
 
+function formatElapsed(ns){
+	let ms = Number(ns) / 1e6
+	if(ms < 1000) return `${ms | 0}ms`
+	let s = ms / 1000
+	if(s < 60) return `${s.toFixed(1)}s`
+	let m = s / 60
+	return `${m.toFixed(1)}m`
+}
+
+function scheduleAutoFlush(){
+	if(autoFlushTimer) return
+	autoFlushTimer = setTimeout(() => {
+		autoFlushTimer = null
+		logger.flush()
+	}, ACCUMULATE_AUTOFLUSH_MS)
+	// Don't keep the event loop alive just for the flush timer.
+	if(typeof autoFlushTimer.unref === 'function')
+		autoFlushTimer.unref()
+}
+
 function accumulateMethod(level){
 	return function(entry){
-		let acc = accumulators[level] ||= { text: [], data: {} }
+		let acc = accumulators[level]
+		if(!acc){
+			acc = accumulators[level] = { text: [], data: {}, startedAt: process.hrtime.bigint() }
+		}
 		if(entry?.text){
 			let parts = Array.isArray(entry.text) ? entry.text : [entry.text]
 			acc.text.push(parts)
@@ -65,6 +94,7 @@ function accumulateMethod(level){
 			for(let [k, v] of Object.entries(entry.data))
 				acc.data[k] = (acc.data[k] || 0) + v
 		}
+		scheduleAutoFlush()
 		return logger
 	}
 }
@@ -103,15 +133,21 @@ const logger = {
 		for(let [level, acc] of Object.entries(accumulators)){
 			if(acc.text.length === 0 && Object.keys(acc.data).length === 0)
 				continue
+			let elapsed = formatElapsed(process.hrtime.bigint() - acc.startedAt)
 			for(let parts of acc.text){
 				let rendered = parts.map(p => {
 					if(typeof p !== 'string') return p
-					return p.replace(/%(\w+)/g, (m, k) => acc.data[k] ?? m)
+					return p.replace(/%time\b/g, elapsed)
+						.replace(/%(\w+)/g, (m, k) => acc.data[k] ?? m)
 				})
 				emit(level, rendered)
 			}
 		}
 		accumulators = {}
+		if(autoFlushTimer){
+			clearTimeout(autoFlushTimer)
+			autoFlushTimer = null
+		}
 		return logger
 	}
 }

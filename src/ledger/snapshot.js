@@ -87,18 +87,25 @@ async function createFeed({ ctx, ledgerSequence, marker, node }){
 }
 
 async function copyFromFeed({ ctx, feed }){
+	let firstChunkSeen = false
+
 	while(true){
 		let chunk = await feed.next()
-		
+
 		if(!chunk)
 			break
-		
+
+		if(!firstChunkSeen){
+			firstChunkSeen = true
+			log.info(`first snapshot chunk received (${chunk.objects.length} objects); ingesting...`)
+		}
+
 		ctx.db.core.tx(() => {
 			applyLedgerStateFromObjects({
 				ctx,
 				objects: chunk.objects
 			})
-			
+
 			ctx.snapshotState = ctx.db.core.snapshots.updateOne({
 				data: {
 					originNode: feed.node,
@@ -110,11 +117,11 @@ async function copyFromFeed({ ctx, feed }){
 				}
 			})
 		})
-		
+
 		log.accumulate.info({
 			text: [
 				`processed`,
-				ctx.snapshotState.entriesCount, 
+				ctx.snapshotState.entriesCount,
 				`ledger objects (+%objects in %time)`
 			],
 			data: {

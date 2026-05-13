@@ -1,10 +1,29 @@
-// Known-amendment baseline. Generated against rippled 3.1.x (May 2026 snapshot).
-// On startup, the indexer queries `feature` on the connected node and warns about
-// any enabled amendment that isn't in this list — that's the signal to update
-// state/index.js handlers + the schema before they start producing wrong data.
+// Informational amendment check.
+//
+// The indexer is designed to *gracefully* handle new ledger entry types and
+// transaction types it doesn't recognize:
+//   - Unknown LedgerEntryTypes are logged once and recorded in the
+//     UnknownLedgerEntryType table by applyDeltas() — they don't crash sync.
+//   - LedgerTxTypeCount.type is a free-form string with no enum, so any new
+//     transaction type from a future amendment can be counted without schema
+//     changes.
+//   - State parsers use defensive field access; missing fields are tolerated.
+//
+// So this check is purely informational — it reports which network amendments
+// xrplmeta has explicit handler support for, vs which ones are "unknown but
+// handled-by-design". It's emitted at debug level by default; the only thing
+// that surfaces at info level is a one-line summary count.
+//
+// If the indexer ever needs to be updated for a new amendment (e.g. to
+// recognize new ledger entry types properly, or to produce richer derived
+// data), that becomes obvious from the UnknownLedgerEntryType table —
+// not from this startup check.
 
 import log from '../lib/log.js'
 
+// Amendments xrplmeta has explicit handler support for (state/*.js modules,
+// schema fields, derived metrics). Anything else still works — just without
+// the specialized handling.
 export const knownAmendments = new Set([
 	'AMM',
 	'AMMClawback',
@@ -54,15 +73,21 @@ export async function checkLiveAmendments({ ctx }){
 			}
 		}
 
-		let unknown = enabled.filter(name => !knownAmendments.has(name))
-		if(unknown.length > 0){
-			log.warn(`live network has ${unknown.length} amendment(s) not in xrplmeta's baseline:`)
-			for(let name of unknown){
-				log.warn(`  - ${name}`)
+		let unhandled = enabled.filter(name => !knownAmendments.has(name))
+
+		log.info(
+			`network has ${enabled.length} amendments enabled` +
+			(unhandled.length > 0
+				? ` (${unhandled.length} not in xrplmeta's explicit-handler set — these still work, but won't get specialized handling)`
+				: ` — all in xrplmeta's explicit-handler set`)
+		)
+
+		// Per-amendment detail is debug-only — visible with --log debug if someone
+		// wants to know specifically which amendments aren't handled.
+		if(unhandled.length > 0){
+			for(let name of unhandled){
+				log.debug(`  amendment without explicit handler: ${name}`)
 			}
-			log.warn(`Indexer may need updates to handle new ledger entry types or transaction types.`)
-		}else{
-			log.info(`live network amendments all match xrplmeta baseline`)
 		}
 	}catch(error){
 		log.debug(`amendment baseline check failed: ${error.message}`)
