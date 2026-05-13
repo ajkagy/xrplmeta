@@ -64,8 +64,10 @@ export function diff({ ctx, previous, final }){
 				: meta
 		})
 
+		// Pass a narrow lookup spec — getAccountId would crash if we handed it the full
+		// parsed object since `balance`/`ledgerSequence` aren't on the Account schema.
 		if(final?.domain != previous?.domain)
-			markCacheDirtyForAccountProps({ ctx, account: final })
+			markCacheDirtyForAccountProps({ ctx, account: { id, address } })
 	}else{
 		var { id } = ctx.db.core.accounts.createOne({ 
 			data: {

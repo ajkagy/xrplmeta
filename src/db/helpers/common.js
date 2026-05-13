@@ -119,26 +119,43 @@ export function writePoint({ table, selector, ledgerSequence, backwards, data, e
 	})
 }
 
+// Whitelist of Account fields safe to use in a WHERE clause. Callers sometimes pass
+// "rich" parsed objects (containing balance/ledgerSequence/pseudo/etc.) — we filter
+// down to schema-recognized lookup fields so structdb doesn't throw on unknowns.
+const ACCOUNT_LOOKUP_FIELDS = ['id', 'address']
+const TOKEN_LOOKUP_FIELDS   = ['id', 'currency', 'issuer', 'mptIssuanceId', 'tokenType']
+
+function pickLookup(obj, fields){
+	let where = {}
+	for(let key of fields){
+		if(obj[key] !== undefined && obj[key] !== null)
+			where[key] = obj[key]
+	}
+	return where
+}
+
 export function getAccountId({ ctx, account }){
-	if(account.id)
-		return account.id
+	if(!account) return undefined
+	if(account.id != null) return account.id
+
+	let where = pickLookup(account, ACCOUNT_LOOKUP_FIELDS)
+	if(Object.keys(where).length === 0) return undefined
 
 	return ctx.db.core.accounts.readOne({
-		where: account,
-		select: {
-			id: true
-		}
+		where,
+		select: { id: true }
 	})?.id
 }
 
 export function getTokenId({ ctx, token }){
-	if(token.id)
-		return token.id
+	if(!token) return undefined
+	if(token.id != null) return token.id
+
+	let where = pickLookup(token, TOKEN_LOOKUP_FIELDS)
+	if(Object.keys(where).length === 0) return undefined
 
 	return ctx.db.core.tokens.readOne({
-		where: token,
-		select: {
-			id: true
-		}
+		where,
+		select: { id: true }
 	})?.id
 }
