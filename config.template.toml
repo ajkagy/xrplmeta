@@ -7,8 +7,12 @@ data_dir = "<path to empty folder>"
 # Any ledgers before this sequence will be ignored
 # For full-history livenet, this value should be 32570, beause the first 32569 ledgers were lost
 backfill_to_ledger = 32570
-# How many ledger objects per ledger_data request to fetch
-snapshot_chunk_size = 64000
+# How many ledger objects per ledger_data request to fetch.
+# Public rippled/clio endpoints cap this at 256. Admin / no-rate-limit
+# connections accept much higher values (5000–20000 is typical for snapshot
+# speed; some operators go to 64000+). If rippled rejects the chosen size as
+# "invalidParams", the indexer will automatically halve it and retry.
+snapshot_chunk_size = 256
 # How many ledgers to fetch in advance before writing them to the database
 stream_queue_size = 100
 
