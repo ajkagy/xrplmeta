@@ -108,7 +108,11 @@ export default class Node extends EventEmitter{
 
 		try{
 			if(payload.command){
-				return await this.socket.request(payload)
+				// Strip pool-internal routing fields before forwarding to rippled —
+				// `ticket` (and any other non-XRPL keys) cause "Invalid parameters" errors
+				// from strictly-validating rippled/clio nodes.
+				let { ticket, ...xrplPayload } = payload
+				return await this.socket.request(xrplPayload)
 			}else if(payload.type === 'reserveTicket'){
 				let ticket = Math.random()
 					.toString(16)
