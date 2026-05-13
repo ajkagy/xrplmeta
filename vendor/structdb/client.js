@@ -13,7 +13,10 @@ export async function createStructDB({ file, schema, codecs = [], ...options }){
 	let database = createAdapter({ file, ...options })
 	let models = {}
 
-	if(database.blank){
+	// Always call construct(): on blank DBs it creates the schema; on existing DBs it
+	// detects pre-existing tables and ALTER ADD COLUMNs any new fields. This avoids the
+	// "no such column" failure that otherwise hits after schema additions.
+	if(!options.readOnly){
 		constructTables({ database, tables })
 	}
 

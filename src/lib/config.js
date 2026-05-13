@@ -59,8 +59,24 @@ export function load(file, createIfMissing){
 
 
 function validate(config){
-	if(!config.node || typeof config.node.dataDir !== 'string')
-		throw new Error(`config: [NODE].data_dir must be a string path`)
+	let topKeys = Object.keys(config).join(', ') || '<empty>'
+
+	if(!config.node){
+		throw new Error(
+			`config: missing [NODE] section. Found top-level sections: ${topKeys}.\n` +
+			`If this config was created by an earlier xrplmeta version, delete it and re-run to regenerate from the current template.`
+		)
+	}
+	if(typeof config.node.dataDir !== 'string'){
+		throw new Error(
+			`config: [NODE].data_dir must be a string path. Got: ${JSON.stringify(config.node.dataDir)} (keys under [NODE]: ${Object.keys(config.node).join(', ') || '<empty>'})`
+		)
+	}
+	if(config.node.dataDir.includes('<path to empty folder>')){
+		throw new Error(
+			`config: [NODE].data_dir still has the template placeholder "<path to empty folder>". Edit your config and set it to a real directory.`
+		)
+	}
 
 	if(config.server){
 		if(typeof config.server.port !== 'number' || config.server.port < 0 || config.server.port > 65535)
@@ -83,7 +99,7 @@ export function create(file){
 		)
 
 	if(!fs.existsSync(dir))
-		fs.mkdirSync(dir)
+		fs.mkdirSync(dir, { recursive: true })
 
 	fs.writeFileSync(file, customizedTemplate)
 }
