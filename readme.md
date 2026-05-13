@@ -18,6 +18,8 @@ From there on
 - Backfill ledger history simultaneously
 - Scrape additional metadata sources, such as [Bithomp](https://bithomp.com), [XRP Scan](https://xrpscan.com) and [Xaman](https://xaman.dev)
 
+The indexer now also tracks AMM pools, Single-Asset Vaults, and Price Oracles, and is designed to handle new XRPL amendments gracefully — unknown ledger entry types are recorded for follow-up rather than crashing sync, and new transaction types from future amendments don't require schema changes.
+
 
 
 ## The Config File
@@ -26,29 +28,40 @@ When starting the node for the first time, it will automatically create a direct
 
 Alternatively, you can specify which config file to use using
 
-    node src/run --config /path/to/config.toml
+    node src/run.js --config /path/to/config.toml
 
 The config file uses "stanzas" for configuring each relevant component, such as the [public server API](https://github.com/xrplmeta/node/tree/develop/src/srv) and the [crawlers](https://github.com/xrplmeta/node/tree/develop/src/crawl/crawlers). Delete or comment the respective stanza to disable the component.
 
 Review the comments in [default configuration file](https://github.com/xrplmeta/node/blob/develop/config.template.toml) for further explanation of the individual parameters.
 
+### Tuning snapshot speed
+
+`snapshot_chunk_size` in the `[LEDGER]` section controls how many ledger objects the indexer fetches per `ledger_data` request during the initial snapshot. Public rippled/clio endpoints cap this at 256; admin or no-rate-limit endpoints accept higher values (5000–20000 typical). If a chunk size is rejected as `invalidParams`, the indexer automatically halves it and retries.
+
+For faster backfill, increase `connections` per `[[LEDGER.SOURCE]]` — each connection runs a parallel backfill worker.
+
 
 
 ## API Documentation
 
-https://xrplmeta.org/docs
+The public reference for stable endpoints is at https://xrplmeta.org/docs.
 
-The node will listen for incoming HTTP connections on the port specified in the config file. These can either serve a REST query, or be upgraded to a WebSocket connection.
+Endpoints and response fields added in the 2.24 line — AMM pool endpoints (`/v2/amms`, `/v2/amm/:account`, `/v2/amm/:account/series`), the `pool` field on token summaries, the `pool`/`pool_source` flags on token holders, and the `only_pools`/`exclude_pools` query filters — are documented in [`docs/api.md`](docs/api.md).
+
+The node listens for incoming HTTP connections on the port specified in the config file. Connections are either served as REST queries or upgraded to a WebSocket connection.
 
 
 
 ## Install for production use
 
-Install the public NPM package:
+> The public NPM package may lag behind this repository. For the current code, clone the repo and install from source.
 
-    npm install -g xrplmeta
+    git clone https://github.com/xrplmeta/node.git xrplmeta
+    cd xrplmeta
+    npm install
+    node src/run.js
 
-This will add the `xrplmeta` command to your PATH. Simply run this command to start the server. A template configuration file will be placed in your user directory. It is recommended to adjust this config.
+A template configuration file will be placed in your user directory on first launch. Edit `~/.xrplmeta/config.toml` and set at minimum `[NODE].data_dir` to a real path before running again.
 
 
 
@@ -60,14 +73,54 @@ Clone this repository and install the dependencies:
 
 The development node can be started using:
 
-    node src/run
+    node src/run.js
+
+Run the unit tests with:
+
+    npm test
 
 
 
 ## Requirements
 
-- Node.js version +14
+- **Node.js 20.x, 22.x, 23.x, 24.x, or 25.x** (the `better-sqlite3` native binding is built against these — Node 21 also works if rebuilt from source)
 
-- An internet connection
+- **Build tools** for the native SQLite extension (`sqlite-xfl.node`) and `better-sqlite3`:
+  - Linux: `sudo apt-get install build-essential python3`
+  - macOS: `xcode-select --install`
+  - Windows: Visual Studio C++ Build Tools and Python 3
 
-- More than 3 GB of disk storage
+  `npm install` runs `scripts/check-buildtools.js` as a preflight and will tell you up front if anything is missing.
+
+- **An internet connection** to one or more rippled/clio nodes (configured in `[[LEDGER.SOURCE]]`)
+
+- **Disk storage**: 3+ GB minimum for the initial snapshot. Full historical backfill consumes much more — plan for tens of GB to hundreds depending on how far back you backfill.
+
+
+
+## Project layout
+
+| Path | What's there |
+|---|---|
+| `src/` | Main source: ledger sync, snapshot, state handlers, server, crawlers |
+| `src/db/schemas/` | JSON-Schema definitions for the SQLite databases (`core.db`, `cache.db`) |
+| `src/db/migrations/` | Migration scaffolding for schema changes that can't be expressed in JSON |
+| `src/ledger/state/` | One module per LedgerEntryType (AccountRoot, RippleState, AMM, Vault, Oracle, MPToken, NFTokenPage/Offer, …) |
+| `vendor/` | Vendored copies of `@xrplkit/xfl`, `@xrplkit/txmeta`, `@xrplkit/xls26`, `@structdb/sqlite`, and `@structdb/codec`. Owned in-tree to eliminate supply-chain risk from alpha/single-maintainer packages |
+| `deps/sqlite-extensions/xfl.c` | Native SQLite extension for XRPL Floating Point math |
+| `scripts/check-buildtools.js` | Preflight that verifies the local toolchain before `node-gyp rebuild` runs |
+| `test/unit/` | Mocha unit tests; run with `npm test` |
+| `test/live/` | Live-network integration tests; run with `npm run livetest -- <case>` |
+| `docs/api.md` | Reference for the endpoints and fields added in the 2.24 line |
+
+
+
+## Database migrations
+
+The SQLite schema can be evolved in two ways:
+
+1. **Adding new columns to existing tables** — handled automatically. On startup, the indexer inspects each table and runs `ALTER TABLE ADD COLUMN` for any field declared in the JSON schema that isn't yet present. No manual migration required for additive column changes.
+
+2. **Type changes, dropped columns, new UNIQUE constraints, primary key changes** — must be handled via a manual migration in `src/db/migrations/`. The migration runner records applied IDs in a `SchemaMigration` table so each migration runs exactly once.
+
+If you ever see startup fail with `no such column: …`, pull the latest code (the auto-migrate covers most cases) or check `src/db/migrations/index.js` for the migration that needs to be added.
