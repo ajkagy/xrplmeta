@@ -1,8 +1,6 @@
 
 # The XRPL Meta Node
 
-This is a Javascript implementation of the [XRPL Meta](https://xrplmeta.org) project.
-
 XRPL Meta collects metadata about digital assets on the XRP Ledger. It makes the data available via a JSON REST and WebSocket API, just like [rippled](https://github.com/XRPLF/rippled). It connects to one or multiple rippled or [clio](https://github.com/XRPLF/clio) nodes and tracks updates in real time. Historical data is being backfilled.
 
 
@@ -18,21 +16,21 @@ From there on
 - Backfill ledger history simultaneously
 - Scrape additional metadata sources, such as [Bithomp](https://bithomp.com), [XRP Scan](https://xrpscan.com) and [Xaman](https://xaman.dev)
 
-The indexer now also tracks AMM pools, Single-Asset Vaults, and Price Oracles, and is designed to handle new XRPL amendments gracefully — unknown ledger entry types are recorded for follow-up rather than crashing sync, and new transaction types from future amendments don't require schema changes.
+The indexer also tracks AMM pools, Single-Asset Vaults, and Price Oracles, and is designed to handle new XRPL amendments gracefully — unknown ledger entry types are recorded for follow-up rather than crashing sync, and new transaction types from future amendments don't require schema changes.
 
 
 
 ## The Config File
 
-When starting the node for the first time, it will automatically create a directory called `.xrplmeta` in the user's home directory. A copy of the [default configuration file](https://github.com/xrplmeta/node/blob/develop/config.template.toml) will be put there, and used.
+When starting the node for the first time, it will automatically create a directory called `.xrplmeta` in the user's home directory. A copy of [`config.template.toml`](config.template.toml) will be put there, and used.
 
 Alternatively, you can specify which config file to use using
 
     node src/run.js --config /path/to/config.toml
 
-The config file uses "stanzas" for configuring each relevant component, such as the [public server API](https://github.com/xrplmeta/node/tree/develop/src/srv) and the [crawlers](https://github.com/xrplmeta/node/tree/develop/src/crawl/crawlers). Delete or comment the respective stanza to disable the component.
+The config file uses "stanzas" for configuring each relevant component, such as the [public server API](src/srv) and the [crawlers](src/crawl/crawlers). Delete or comment the respective stanza to disable the component.
 
-Review the comments in [default configuration file](https://github.com/xrplmeta/node/blob/develop/config.template.toml) for further explanation of the individual parameters.
+Review the comments in [`config.template.toml`](config.template.toml) for further explanation of the individual parameters.
 
 ### Tuning snapshot speed
 
@@ -44,36 +42,25 @@ For faster backfill, increase `connections` per `[[LEDGER.SOURCE]]` — each con
 
 ## API Documentation
 
-The public reference for stable endpoints is at https://xrplmeta.org/docs.
-
-Endpoints and response fields added in the 2.24 line — AMM pool endpoints (`/v2/amms`, `/v2/amm/:account`, `/v2/amm/:account/series`), the `pool` field on token summaries, the `pool`/`pool_source` flags on token holders, and the `only_pools`/`exclude_pools` query filters — are documented in [`docs/api.md`](docs/api.md).
+The full list of HTTP/WebSocket endpoints and response fields — including the AMM pool endpoints (`/v2/amms`, `/v2/amm/:account`, `/v2/amm/:account/series`), the `pool` field on token summaries, the `pool`/`pool_source` flags on token holders, and the `only_pools`/`exclude_pools` query filters — is documented in [`docs/api.md`](docs/api.md).
 
 The node listens for incoming HTTP connections on the port specified in the config file. Connections are either served as REST queries or upgraded to a WebSocket connection.
 
 
 
-## Install for production use
-
-> The public NPM package may lag behind this repository. For the current code, clone the repo and install from source.
-
-    git clone https://github.com/xrplmeta/node.git xrplmeta
-    cd xrplmeta
-    npm install
-    node src/run.js
-
-A template configuration file will be placed in your user directory on first launch. Edit `~/.xrplmeta/config.toml` and set at minimum `[NODE].data_dir` to a real path before running again.
-
-
-
-## Install for development
+## Install
 
 Clone this repository and install the dependencies:
 
+    git clone https://github.com/ajkagy/xrplmeta.git
+    cd xrplmeta
     npm install
 
-The development node can be started using:
+Start the node with:
 
     node src/run.js
+
+A template configuration file will be placed in your user directory on first launch. Edit `~/.xrplmeta/config.toml` and set at minimum `[NODE].data_dir` to a real path before running again.
 
 Run the unit tests with:
 
@@ -111,7 +98,7 @@ Run the unit tests with:
 | `scripts/check-buildtools.js` | Preflight that verifies the local toolchain before `node-gyp rebuild` runs |
 | `test/unit/` | Mocha unit tests; run with `npm test` |
 | `test/live/` | Live-network integration tests; run with `npm run livetest -- <case>` |
-| `docs/api.md` | Reference for the endpoints and fields added in the 2.24 line |
+| `docs/api.md` | API reference |
 
 
 
