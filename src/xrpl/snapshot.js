@@ -38,14 +38,19 @@ export async function start({ ctx, ledgerSequence, marker, node }){
 				await wait(100)
 
 			try{
-				let { result } = await ctx.xrpl.request({
+				// Build the request, omitting marker entirely on the first chunk —
+				// rippled rejects {marker: null} with "Invalid parameters".
+				let req = {
 					command: 'ledger_data',
-					ledger_index: ledgerSequence,
+					ledger_index: typeof ledgerSequence === 'bigint' ? Number(ledgerSequence) : ledgerSequence,
 					limit: chunkSize,
 					binary: false,
-					marker,
 					ticket
-				})
+				}
+				if(marker !== null && marker !== undefined)
+					req.marker = marker
+
+				let { result } = await ctx.xrpl.request(req)
 
 				queue.push({ 
 					objects: result.state, 
@@ -66,6 +71,8 @@ export async function start({ ctx, ledgerSequence, marker, node }){
 				log.warn(`could not fetch ledger chunk (limit=${chunkSize}, marker=${marker || 'start'}): ${detail}${code}`)
 				if(e?.sent){
 					log.warn(`  we sent: ${e.sent.slice(0, 400)}`)
+				}else{
+					log.warn(`  (no sent payload captured — sentBody not set on inflight entry; error: ${e?.name || typeof e})`)
 				}
 				if(e?.request){
 					log.warn(`  rippled echoed request back: ${JSON.stringify(e.request).slice(0, 400)}`)

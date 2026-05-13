@@ -131,16 +131,24 @@ export default function createSocket({ url }){
 					reject(new Error(`request ${id} timed out after ${REQUEST_TIMEOUT_MS}ms`))
 				}, REQUEST_TIMEOUT_MS)
 
-				inflight.set(id, { resolve, reject, timer })
+				let body
+				try{
+					body = JSON.stringify({ id, ...payload }, jsonReplacer)
+				}catch(err){
+					clearTimeout(timer)
+					reject(err)
+					return
+				}
+
+				// Set sentBody up-front (avoid races where the response arrives before we get
+				// a chance to attach it after ws.send returns).
+				inflight.set(id, { resolve, reject, timer, sentBody: body })
+
+				if(DEBUG_WS)
+					console.error(`[ws#${url}] --> ${body.slice(0, 500)}`)
 
 				try{
-					let body = JSON.stringify({ id, ...payload }, jsonReplacer)
-					if(DEBUG_WS)
-						console.error(`[ws#${url}] --> ${body.slice(0, 500)}`)
 					ws.send(body)
-					// Stash the wire body so error paths can show exactly what was sent.
-					let pending = inflight.get(id)
-					if(pending) pending.sentBody = body
 				}catch(err){
 					inflight.delete(id)
 					clearTimeout(timer)
