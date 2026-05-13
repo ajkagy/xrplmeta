@@ -5,6 +5,21 @@ const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 60_000
 const REQUEST_TIMEOUT_MS = 30_000
 
+// Set XRPLMETA_DEBUG_WS=1 to log every request/response payload.
+const DEBUG_WS = process.env.XRPLMETA_DEBUG_WS === '1'
+
+// JSON replacer: convert BigInt to plain numbers when safe (this avoids
+// "TypeError: Do not know how to serialize a BigInt" coming back from
+// structdb-returned ledger sequences that better-sqlite3 hands back as BigInt).
+function jsonReplacer(_, value){
+	if(typeof value === 'bigint'){
+		if(value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER))
+			return Number(value)
+		return value.toString()
+	}
+	return value
+}
+
 // Thin rippled/clio WebSocket client with auto-reconnect and request/response correlation.
 // Drop-in replacement for @xrplkit/socket's `createSocket({ url })`.
 //
@@ -43,10 +58,22 @@ export default function createSocket({ url }){
 				if(!pending) return
 				inflight.delete(msg.id)
 				clearTimeout(pending.timer)
-				if(msg.status === 'success')
+				if(DEBUG_WS)
+					console.error(`[ws#${url}] <-- ${JSON.stringify(msg).slice(0, 500)}`)
+				if(msg.status === 'success'){
 					pending.resolve(msg.result)
-				else
-					pending.reject(msg.error_message ? Object.assign(new Error(msg.error_message), { error: msg.error }) : msg)
+				}else{
+					let err = Object.assign(
+						new Error(msg.error_message || msg.error || 'request failed'),
+						{
+							error: msg.error,
+							error_code: msg.error_code,
+							request: msg.request,
+							sent: pending.sentBody
+						}
+					)
+					pending.reject(err)
+				}
 				return
 			}
 
@@ -107,7 +134,13 @@ export default function createSocket({ url }){
 				inflight.set(id, { resolve, reject, timer })
 
 				try{
-					ws.send(JSON.stringify({ id, ...payload }))
+					let body = JSON.stringify({ id, ...payload }, jsonReplacer)
+					if(DEBUG_WS)
+						console.error(`[ws#${url}] --> ${body.slice(0, 500)}`)
+					ws.send(body)
+					// Stash the wire body so error paths can show exactly what was sent.
+					let pending = inflight.get(id)
+					if(pending) pending.sentBody = body
 				}catch(err){
 					inflight.delete(id)
 					clearTimeout(timer)

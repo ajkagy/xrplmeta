@@ -59,17 +59,25 @@ export async function start({ ctx, ledgerSequence, marker, node }){
 					
 			}catch(e){
 				let detail = e?.error || e?.message || e
+				let code = e?.error_code !== undefined ? ` (code=${e.error_code})` : ''
 				let isInvalidParams = e?.error === 'invalidParams'
 					|| /invalid\s*param/i.test(String(detail))
 
+				log.warn(`could not fetch ledger chunk (limit=${chunkSize}, marker=${marker || 'start'}): ${detail}${code}`)
+				if(e?.sent){
+					log.warn(`  we sent: ${e.sent.slice(0, 400)}`)
+				}
+				if(e?.request){
+					log.warn(`  rippled echoed request back: ${JSON.stringify(e.request).slice(0, 400)}`)
+				}
+
 				if(isInvalidParams && chunkSize > MIN_CHUNK_FLOOR){
 					let next = Math.max(MIN_CHUNK_FLOOR, Math.floor(chunkSize / 2))
-					log.warn(`rippled rejected chunk size ${chunkSize} as invalidParams — halving to ${next} (likely a non-admin endpoint cap)`)
+					log.warn(`rippled rejected chunk size ${chunkSize} as invalidParams — halving to ${next}`)
 					chunkSize = next
 					continue
 				}
 
-				log.warn(`could not fetch ledger chunk (limit=${chunkSize}, marker=${marker || 'start'}): ${detail}`)
 				await wait(2500)
 				continue
 			}
