@@ -5,10 +5,14 @@ const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 60_000
 const REQUEST_TIMEOUT_MS = 30_000
 
-// If a WebSocket sits in CONNECTING state past this, force-close it. Otherwise
-// a rippled that accepted the TCP connection but never replied to the WS
-// upgrade leaves us hanging forever (no 'open', no 'close', no reconnect).
-const HANDSHAKE_TIMEOUT_MS = 15_000
+// WebSocket upgrade handshake timeout. Generous because the bottleneck is often
+// our own event loop being blocked by synchronous SQL — the TCP connection
+// completes and rippled writes its 101 response within milliseconds, but our
+// process can't read it until the loop unblocks. If we kill the connection
+// before that happens, we end up in a permanent reconnect storm even though
+// the network is fine. 90 seconds gives us tolerance for ~1-2 long sync blocks
+// before giving up. Override with XRPLMETA_WS_HANDSHAKE_TIMEOUT_MS if needed.
+const HANDSHAKE_TIMEOUT_MS = parseInt(process.env.XRPLMETA_WS_HANDSHAKE_TIMEOUT_MS || '90000', 10)
 
 // WebSocket-level keepalive ping. Off by default because some rippled / proxy
 // configurations don't pong reliably under load, and a missing pong with the
@@ -77,22 +81,15 @@ export default function createSocket({ url }){
 	}
 
 	function connect(){
+		// Note: we DON'T add an extra "connectingTimer" wrapper on top of the ws
+		// library's handshakeTimeout. The library reliably fires 'close' (with
+		// code 1006 + errmsg "Opening handshake has timed out") when its timeout
+		// expires, which triggers our reconnect path. Adding a second timer just
+		// races to terminate the socket first, killing connections that were
+		// about to succeed.
 		ws = new WebSocket(url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS })
 
-		// Belt-and-braces: even with handshakeTimeout set, some failure modes
-		// (DNS hangs at the libc level, kernel-level TCP retries on a black-hole
-		// route) can leave us in CONNECTING longer than expected. Force-close
-		// after HANDSHAKE_TIMEOUT_MS + 5s so we always recover.
-		let connectingTimer = setTimeout(() => {
-			if(ws && ws.readyState === WebSocket.CONNECTING){
-				emitter.emit('error', new Error(`connect timed out after ${HANDSHAKE_TIMEOUT_MS + 5000}ms in CONNECTING`))
-				try{ ws.terminate() }catch{}
-			}
-		}, HANDSHAKE_TIMEOUT_MS + 5000)
-		if(connectingTimer?.unref) connectingTimer.unref()
-
 		ws.on('open', () => {
-			clearTimeout(connectingTimer)
 			connected = true
 			let wasReconnect = reconnectAttempts > 0
 			reconnectAttempts = 0
@@ -157,7 +154,6 @@ export default function createSocket({ url }){
 		// rippled or a proxy decided to drop us.
 		ws.on('close', (code, reasonBuf) => {
 			let wasConnected = connected
-			clearTimeout(connectingTimer)
 			connected = false
 			clearKeepalive()
 

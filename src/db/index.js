@@ -2,6 +2,8 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import createStructDB from '../../vendor/structdb/index.js'
+import log from '../lib/log.js'
+import { markSyncOperation, endSyncOperation } from '../lib/health.js'
 import codecs from './codecs/index.js'
 import TokenType from '../xrpl/tokentype.js'
 
@@ -24,8 +26,21 @@ export async function openDB({ ctx, coreReadOnly=false, inMemory=false }){
 	}
 }
 
+async function timeStage(name, fn){
+	markSyncOperation(name)
+	let start = process.hrtime.bigint()
+	try{
+		return await fn()
+	}finally{
+		endSyncOperation()
+		let ms = Number(process.hrtime.bigint() - start) / 1e6
+		if(ms > 500)
+			log.warn(`slow ${name} took ${ms.toFixed(0)}ms`)
+	}
+}
+
 export async function openCoreDB({ ctx, readOnly=false, inMemory=false }){
-	let db = await createStructDB({
+	let db = await timeStage('openCoreDB.createStructDB', async () => createStructDB({
 		file: inMemory
 			? ':memory:'
 			: `${ctx.config.node.dataDir}/core.db`,
@@ -39,27 +54,23 @@ export async function openCoreDB({ ctx, readOnly=false, inMemory=false }){
 		debug: ctx.config.debug?.queries,
 		codecs,
 		readOnly
+	}))
+
+	await timeStage('openCoreDB.loadExtension', async () => {
+		db.loadExtension(
+			path.join(__dirname, '..', '..', 'deps', 'build', 'Release', 'sqlite-xfl.node')
+		)
 	})
 
-	db.loadExtension(
-		path.join(
-			__dirname,
-			'..',
-			'..',
-			'deps',
-			'build',
-			'Release',
-			'sqlite-xfl.node'
-		)
-	)
-
 	if(!readOnly){
-		db.tokens.createOne({
-			data: {
-				currency: 'XRP',
-				issuer: null,
-				tokenType: TokenType.XRP
-			}
+		await timeStage('openCoreDB.createXRP', async () => {
+			db.tokens.createOne({
+				data: {
+					currency: 'XRP',
+					issuer: null,
+					tokenType: TokenType.XRP
+				}
+			})
 		})
 	}
 
@@ -67,7 +78,7 @@ export async function openCoreDB({ ctx, readOnly=false, inMemory=false }){
 }
 
 export async function openCacheDB({ ctx, inMemory=false }){
-	return await createStructDB({
+	return await timeStage('openCacheDB.createStructDB', async () => createStructDB({
 		file: inMemory
 			? ':memory:'
 			: `${ctx.config.node.dataDir}/cache.db`,
@@ -79,5 +90,5 @@ export async function openCacheDB({ ctx, inMemory=false }){
 		journalMode: 'WAL',
 		debug: ctx.config.debug?.queries,
 		codecs
-	})
+	}))
 }
