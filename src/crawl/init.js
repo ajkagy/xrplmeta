@@ -28,15 +28,19 @@ export async function spawnCrawler({ ctx, name }){
 
 	start({ ctx })
 		.catch(error => {
-			log.warn(`skipping crawler [${name}]:`, error.message)
+			log.warn(`skipping crawler [${name}]: ${error?.message || error}`)
 			crashed = true
 		})
 
+	// Give the crawler 100ms to throw its initial "disabled by config" / auth /
+	// connection error synchronously, so we can log a single tidy line.
 	await new Promise(resolve => setTimeout(resolve, 100))
 
 	if(!crashed){
 		log.info(`started crawler [${name}]`)
-	}else{
-		process.exit()
 	}
+	// If it did crash, the warn line above is enough. Do NOT exit the process —
+	// other crawlers, the ledger sync, and the server are all running in this
+	// same node process. Killing it on a single crawler's startup failure would
+	// (and did, previously) put pm2 into a restart loop.
 }
