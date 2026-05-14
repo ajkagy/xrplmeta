@@ -8,7 +8,39 @@
 //
 // All exported state is process-local. Import wherever you need to read it.
 
+import log from './log.js'
+
 const SAMPLE_INTERVAL_MS = 250
+
+// Current-operation tracker. Code paths likely to block the loop call
+// markSyncOperation(name) before, and the lag monitor reads the last value
+// when it detects a long stall.
+let currentSyncOp = null
+let currentSyncOpStartedAt = 0n
+let lastStallReportedAt = 0
+const STALL_LOG_THRESHOLD_MS = 2000
+const STALL_LOG_COOLDOWN_MS = 5000
+
+export function markSyncOperation(name){
+	currentSyncOp = name
+	currentSyncOpStartedAt = process.hrtime.bigint()
+}
+
+export function endSyncOperation(){
+	currentSyncOp = null
+	currentSyncOpStartedAt = 0n
+}
+
+// Wrap a sync function so its execution is tracked. Use for major sync blocks
+// where we want post-hoc attribution if the loop stalled.
+export function withSyncOp(name, fn){
+	markSyncOperation(name)
+	try{
+		return fn()
+	}finally{
+		endSyncOperation()
+	}
+}
 
 // Rolling window of the last N lag samples. Used to compute mean / p95.
 const WINDOW_SIZE = 60   // 60 samples × 250ms = 15s rolling window
@@ -34,7 +66,6 @@ export function startHealthMonitor(){
 		lagWindow.push(lag)
 		if(lagWindow.length > WINDOW_SIZE) lagWindow.shift()
 
-		// Track peak lag over last minute (resets every 60s)
 		if(now - peakLagResetAt > 60_000){
 			peakLagMsLastMin = lag
 			peakLagResetAt = now
@@ -42,7 +73,16 @@ export function startHealthMonitor(){
 			peakLagMsLastMin = lag
 		}
 
-		// Schedule next sample
+		// Attribution: when we detect a significant stall, report what was running
+		// at that moment (if anything explicitly marked itself).
+		if(lag >= STALL_LOG_THRESHOLD_MS && (now - lastStallReportedAt) > STALL_LOG_COOLDOWN_MS){
+			lastStallReportedAt = now
+			let opNote = currentSyncOp
+				? `current sync op: "${currentSyncOp}" (started ${Number(process.hrtime.bigint() - currentSyncOpStartedAt) / 1e6 | 0}ms before stall)`
+				: 'no sync op currently marked — block is in code that isn\'t instrumented yet'
+			log.warn(`event-loop stall detected: ${lag}ms — ${opNote}`)
+		}
+
 		setTimeout(sample, SAMPLE_INTERVAL_MS)
 	}
 

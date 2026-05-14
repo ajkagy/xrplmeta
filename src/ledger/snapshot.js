@@ -1,6 +1,7 @@
 import log from '../lib/log.js'
 import { unixNow } from '../lib/time.js'
 import { spawn } from '../lib/workers.js'
+import { markSyncOperation, endSyncOperation } from '../lib/health.js'
 import { fetch as fetchLedger } from '../xrpl/ledger.js'
 import { applyLedgerStateFromObjects } from './state/index.js'
 import { applyLedgerEvents } from './events/index.js'
@@ -39,7 +40,12 @@ export async function createSnapshot({ ctx }){
 
 	if(!ctx.snapshotState.completionTime){
 		log.time.info(`snapshot.derivatives`, `creating derivative data ...`)
-		updateAllDerived({ ctx })
+		markSyncOperation('snapshot.updateAllDerived')
+		try{
+			updateAllDerived({ ctx })
+		}finally{
+			endSyncOperation()
+		}
 		log.time.info(`snapshot.derivatives`, `created derivative data in %`)
 
 		ctx.db.core.snapshots.updateOne({
@@ -116,6 +122,7 @@ async function copyFromFeed({ ctx, feed }){
 			let isLastBatch = offset + batch.length >= total
 			let batchStart = process.hrtime.bigint()
 
+			markSyncOperation(`snapshot.batch(${batch.length} objects, offset ${offset}/${total})`)
 			ctx.db.core.tx(() => {
 				applyLedgerStateFromObjects({
 					ctx,
@@ -138,6 +145,7 @@ async function copyFromFeed({ ctx, feed }){
 				}
 			})
 
+			endSyncOperation()
 			processedInChunk += batch.length
 
 			let batchMs = Number(process.hrtime.bigint() - batchStart) / 1e6

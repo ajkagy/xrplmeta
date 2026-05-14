@@ -1,5 +1,6 @@
 import log from '../lib/log.js'
 import { spawn } from '../lib/workers.js'
+import { markSyncOperation, endSyncOperation } from '../lib/health.js'
 import { applyLedgerEvents } from './events/index.js'
 import { applyLedgerStateFromTransactions } from './state/index.js'
 import { updateDerived } from './derived/index.js'
@@ -33,6 +34,7 @@ export async function startSync({ ctx }){
 			let { ledger, ledgersBehind } = await stream.next()
 			let blockStart = process.hrtime.bigint()
 
+			markSyncOperation(`sync.ledger#${ledger.sequence}(${ledger.transactions.length}txs)`)
 			ctx.db.core.tx(() => {
 				ctx = {
 					...ctx,
@@ -87,6 +89,8 @@ export async function startSync({ ctx }){
 						.replace('T', ' ')
 				}`)
 			}
+
+			endSyncOperation()
 
 			log.time.debug(`sync.cycle`, `sync cycle took % for`, ledger.transactions.length, `tx`)
 

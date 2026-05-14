@@ -1,5 +1,6 @@
 import log from '../lib/log.js'
 import { spawn } from '../lib/workers.js'
+import { markSyncOperation, endSyncOperation } from '../lib/health.js'
 import { applyLedgerEvents } from './events/index.js'
 import { applyLedgerStateFromTransactions } from './state/index.js'
 import { updateDerived } from './derived/index.js'
@@ -28,6 +29,7 @@ export async function startBackfill({ ctx }){
 		let { ledger } = await stream.next()
 		let blockStart = process.hrtime.bigint()
 
+		markSyncOperation(`backfill.ledger#${ledger.sequence}(${ledger.transactions.length}txs)`)
 		ctx.db.core.tx(() => {
 			ctx = {
 				...ctx,
@@ -55,6 +57,8 @@ export async function startBackfill({ ctx }){
 				throw error
 			}
 		})
+
+		endSyncOperation()
 
 		let elapsedMs = Number(process.hrtime.bigint() - blockStart) / 1e6
 		if(elapsedMs > 500)

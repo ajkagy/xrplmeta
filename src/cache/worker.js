@@ -1,5 +1,6 @@
 import log from '../lib/log.js'
 import { wait } from '../lib/time.js'
+import { markSyncOperation, endSyncOperation } from '../lib/health.js'
 import {
 	updateCacheForAccountProps,
 	updateCacheForTokenExchanges,
@@ -73,6 +74,7 @@ export async function startMetaCacheWorker({ ctx }){
 			}
 
 			let blockStart = process.hrtime.bigint()
+			markSyncOperation(`cache.${todo.task}#${todo.subject}`)
 			try{
 				switch(todo.task){
 					case 'account.props':
@@ -99,6 +101,8 @@ export async function startMetaCacheWorker({ ctx }){
 				}
 			}catch(error){
 				log.warn(`cache update for token ${todo.subject} failed: ${error?.message || error}`)
+			}finally{
+				endSyncOperation()
 			}
 
 			let elapsedMs = Number(process.hrtime.bigint() - blockStart) / 1e6

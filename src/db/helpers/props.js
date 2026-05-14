@@ -1,15 +1,34 @@
+import log from '../../lib/log.js'
 import { isSameToken } from '../../xrpl/tokens.js'
 import { readTokenMetrics } from './tokenmetrics.js'
-import { 
-	markCacheDirtyForAccountIcons, 
-	markCacheDirtyForAccountProps, 
-	markCacheDirtyForTokenIcons, 
+import { markSyncOperation, endSyncOperation } from '../../lib/health.js'
+import {
+	markCacheDirtyForAccountIcons,
+	markCacheDirtyForAccountProps,
+	markCacheDirtyForTokenIcons,
 	markCacheDirtyForTokenProps
 } from '../../cache/todo.js'
 
 
+function timeAndAttribute(opName, count, fn){
+	markSyncOperation(opName)
+	let blockStart = process.hrtime.bigint()
+	try{
+		return fn()
+	}finally{
+		endSyncOperation()
+		let ms = Number(process.hrtime.bigint() - blockStart) / 1e6
+		if(ms > 500)
+			log.warn(`slow ${opName} (n=${count}) took ${ms.toFixed(0)}ms — blocked event loop`)
+	}
+}
+
 
 export function diffMultiTokenProps({ ctx, tokens, source }){
+	return timeAndAttribute(`diffMultiTokenProps[${source}]`, tokens.length, () => diffMultiTokenPropsImpl({ ctx, tokens, source }))
+}
+
+function diffMultiTokenPropsImpl({ ctx, tokens, source }){
 	let propIds = []
 
 	for(let { currency, issuer, mptIssuanceId, tokenType, props } of tokens){
@@ -85,6 +104,10 @@ export function diffMultiTokenProps({ ctx, tokens, source }){
 }
 
 export function diffMultiAccountProps({ ctx, accounts, source }){
+	return timeAndAttribute(`diffMultiAccountProps[${source}]`, accounts.length, () => diffMultiAccountPropsImpl({ ctx, accounts, source }))
+}
+
+function diffMultiAccountPropsImpl({ ctx, accounts, source }){
 	let propIds = []
 
 	for(let { address, props } of accounts){
