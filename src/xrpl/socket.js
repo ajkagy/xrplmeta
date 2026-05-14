@@ -5,12 +5,15 @@ const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 60_000
 const REQUEST_TIMEOUT_MS = 30_000
 
-// Send a WebSocket-level ping every PING_INTERVAL_MS to keep NATs from idle-killing
-// the TCP socket and to detect silent half-open connections. If no pong arrives
-// within PONG_TIMEOUT_MS the connection is force-closed (which triggers the
-// normal reconnect path).
-const PING_INTERVAL_MS = 30_000
-const PONG_TIMEOUT_MS = 10_000
+// WebSocket-level keepalive ping. Off by default because some rippled / proxy
+// configurations don't pong reliably under load, and a missing pong with the
+// heartbeat enabled tears down the connection (causing exactly the 1006 disconnect
+// loop we were trying to avoid). Set XRPLMETA_WS_KEEPALIVE=1 to enable, with
+// optional XRPLMETA_WS_PING_INTERVAL_MS (default 60_000) and
+// XRPLMETA_WS_PONG_TIMEOUT_MS (default 20_000).
+const KEEPALIVE_ENABLED = process.env.XRPLMETA_WS_KEEPALIVE === '1'
+const PING_INTERVAL_MS = parseInt(process.env.XRPLMETA_WS_PING_INTERVAL_MS || '60000', 10)
+const PONG_TIMEOUT_MS = parseInt(process.env.XRPLMETA_WS_PONG_TIMEOUT_MS || '20000', 10)
 
 // Set XRPLMETA_DEBUG_WS=1 to log every request/response payload.
 const DEBUG_WS = process.env.XRPLMETA_DEBUG_WS === '1'
@@ -51,6 +54,7 @@ export default function createSocket({ url }){
 
 	function startKeepalive(){
 		clearKeepalive()
+		if(!KEEPALIVE_ENABLED) return  // off by default — see env vars at top
 		pingTimer = setInterval(() => {
 			if(!ws || ws.readyState !== WebSocket.OPEN) return
 			try{
@@ -60,8 +64,6 @@ export default function createSocket({ url }){
 			}
 			if(pongTimer) clearTimeout(pongTimer)
 			pongTimer = setTimeout(() => {
-				// No pong within PONG_TIMEOUT_MS — assume the connection is dead and
-				// force-close so the reconnect path takes over.
 				try{ ws.terminate() }catch{}
 			}, PONG_TIMEOUT_MS)
 		}, PING_INTERVAL_MS)

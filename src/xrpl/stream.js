@@ -9,18 +9,30 @@ export async function createForwardStream({ ctx, startSequence }){
 		log.pipe(ctx.log)
 
 	let latestLedger
+	let attempt = 0
+	let lastLogAt = 0
 
 	while(!latestLedger){
 		try{
-			latestLedger = await fetchLedger({ 
+			latestLedger = await fetchLedger({
 				ctx,
-				sequence: 'validated' 
+				sequence: 'validated'
 			})
 		}catch(error){
-			log.warn(`cannot start forward stream, unable get latest ledger: \n${error}`)
-			await wait(1000)
+			attempt++
+			let now = Date.now()
+			// Log first failure immediately, then at most once every 30s. The pool's
+			// 30s noNodeAcceptedRequest timeout means we'd otherwise spam every cycle.
+			if(attempt === 1 || now - lastLogAt > 30_000){
+				lastLogAt = now
+				log.warn(`cannot start forward stream (attempt ${attempt}): ${formatRequestError(error)}`)
+			}
+			await wait(Math.min(5_000, 1000 * Math.min(attempt, 5)))
 		}
 	}
+
+	if(attempt > 0)
+		log.info(`forward stream started after ${attempt} retr${attempt === 1 ? 'y' : 'ies'} on ledger #${latestLedger.sequence}`)
 
 	let stream = createRegistry({
 		name: 'live',
@@ -219,4 +231,23 @@ function createFiller({ ctx, stream, stride }){
 			}
 		})()
 	}
+}
+
+// Pool rejections are sometimes a string ('noNodeAcceptedRequest'), sometimes
+// an Error, sometimes a plain object like { error, node }. Render them as a
+// single readable line — no `[object Object]`, no multi-line stack dumps.
+function formatRequestError(err){
+	if(err == null) return 'unknown error'
+	if(typeof err === 'string') return err
+	if(err instanceof Error) return err.message || err.toString()
+	if(typeof err === 'object'){
+		let parts = []
+		if(err.error) parts.push(`error=${typeof err.error === 'string' ? err.error : JSON.stringify(err.error)}`)
+		if(err.error_message) parts.push(`message="${err.error_message}"`)
+		if(err.error_code !== undefined) parts.push(`code=${err.error_code}`)
+		if(err.node) parts.push(`node=${err.node}`)
+		if(parts.length > 0) return parts.join(' ')
+		try{ return JSON.stringify(err) }catch{ return String(err) }
+	}
+	return String(err)
 }
