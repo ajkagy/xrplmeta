@@ -37,16 +37,29 @@ async function crawlList({ ctx, id, url, fetchInterval = 600, trustLevel = 0, ig
 				let tokens = []
 				let accounts = []
 
-				let { status, data } = await fetch()
-			
+				let res = await fetch()
+				let { status, data } = res
+
 				if(status !== 200){
-					throw `${url}: HTTP ${response.status}`
+					throw new Error(`${url}: HTTP ${status}`)
+				}
+
+				if(typeof data !== 'string'){
+					let bodyErr = res.headers?.bodyError || res.bodyError
+					let snippet = data == null
+						? '<null/missing body>'
+						: Buffer.isBuffer(data)
+							? `<${data.length} byte binary>`
+							: typeof data
+					throw new Error(`${url}: expected text TOML, got ${snippet}${bodyErr ? ` (body read error: ${bodyErr.message})` : ''}`)
 				}
 
 				try{
 					var { issuers: declaredIssuers, tokens: declaredTokens, issues, advisories } = parseXLS26(data)
 				}catch(error){
-					log.debug(`trustlist [${id}] parse error:`, error)
+					log.debug(`trustlist [${id}] parse error: ${error?.message}`)
+					if(data && data.length > 0)
+						log.debug(`trustlist [${id}] first 200 chars: ${data.slice(0, 200)}`)
 					throw error
 				}
 

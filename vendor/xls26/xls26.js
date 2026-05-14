@@ -42,8 +42,12 @@ const validAssetSubClasses = [
 const legacyAssetClasses = {
 	fiat: { asset_class: 'rwa', asset_subclass: 'stablecoin' },
 	commodity: { asset_class: 'rwa', asset_subclass: 'commodity' },
-	equity: { asset_class: 'rwa', asset_subclass: 'equity' }
-} 
+	equity: { asset_class: 'rwa', asset_subclass: 'equity' },
+	// Used by some trustlists (e.g. unhosted.exchange/tokens.toml) for wrapped/native
+	// cryptocurrency tokens. Maps to the "other" class — these aren't RWA, memes,
+	// gaming, or DeFi assets specifically, so "other" is the closest current bucket.
+	cryptocurrency: { asset_class: 'other' },
+}
 
 const validAdvisoryTypes = [
 	'scam',
@@ -248,10 +252,29 @@ const advisoryFields = [
 ]
 
 export function parse(str){
+	if(typeof str !== 'string'){
+		// Some callers pass a Buffer here (when the upstream fetch identifies the
+		// content-type as binary). Coerce so smol-toml — which only accepts string —
+		// doesn't blow up with a generic TypeError that hides the actual issue.
+		if(str && typeof str.toString === 'function'){
+			str = str.toString('utf8')
+		}else{
+			throw new Error(`Failed to parse .toml: input is not a string (got ${typeof str})`)
+		}
+	}
+	if(str.length === 0)
+		throw new Error(`Failed to parse .toml: input is empty`)
+
 	try{
 		var toml = parseToml(str)
 	}catch(error){
-		throw new Error(`Failed to parse .toml: Syntax error at line ${error.line}:${error.column}`)
+		// smol-toml's TomlError has .line/.column; other errors don't. Cover both.
+		let line = error?.line
+		let col = error?.column
+		let snippet = error?.codeblock ? `\n${error.codeblock}` : ''
+		if(line !== undefined && col !== undefined)
+			throw new Error(`Failed to parse .toml at line ${line}:${col} — ${error.message}${snippet}`)
+		throw new Error(`Failed to parse .toml: ${error?.message || error}`)
 	}
 
 	let issuers = []

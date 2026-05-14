@@ -62,7 +62,10 @@ export function createFetch({ baseUrl, headers, ratelimit, timeout = 20, maxByte
 		}catch(error){
 			if(error?.name === 'ResponseTooLarge')
 				throw error
+			// Don't swallow body-read failures silently — return null but attach the cause
+			// so callers can decide whether to log/retry/skip.
 			data = null
+			res.bodyError = error
 		}
 
 		return {
