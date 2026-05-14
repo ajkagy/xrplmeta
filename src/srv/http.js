@@ -6,6 +6,7 @@ import log from '../lib/log.js'
 import * as procedures from './api.js'
 import { getCachedIconPath, iconSizes } from '../cache/icons.js'
 import { executeProcedure } from './worker.js'
+import { noteHttpRequestStart, noteHttpRequestEnd } from '../cache/worker.js'
 
 
 export function createRouter({ ctx }){
@@ -421,6 +422,12 @@ async function handle({ ctx, svc, procedure, params = {} }){
 		return
 	}
 
+	// Tell the cache workers an HTTP request is in flight — they back off to
+	// give us a fair slice of the event loop. Decrement is in finally so it
+	// runs even on errors.
+	noteHttpRequestStart()
+	let startedAt = Date.now()
+
 	try{
 		svc.type = 'json'
 		svc.body = await executeProcedure({
@@ -428,6 +435,11 @@ async function handle({ ctx, svc, procedure, params = {} }){
 			procedure,
 			params
 		})
+
+		// Surface slow requests so we can spot bottlenecks
+		let elapsed = Date.now() - startedAt
+		if(elapsed > 2000)
+			log.warn(`slow request: ${procedure} took ${elapsed}ms`)
 	}catch(e){
 		if(e.expose){
 			delete e.expose
@@ -442,6 +454,8 @@ async function handle({ ctx, svc, procedure, params = {} }){
 			log.warn(`internal error while handling procedure "${procedure}": ${e.message || 'unknown'}`)
 			log.debug(`error details for "${procedure}":\n${e.stack}\nparams:`, params)
 		}
+	}finally{
+		noteHttpRequestEnd()
 	}
 }
 

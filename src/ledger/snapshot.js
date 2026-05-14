@@ -127,6 +127,11 @@ async function copyFromFeed({ ctx, feed }){
 				objects: chunk.objects.length
 			}
 		})
+
+		// Yield to the event loop between chunks so HTTP requests, WebSocket
+		// pong frames, and reconnect timers all get serviced. Each chunk is a
+		// big synchronous transaction; without yielding, we monopolise CPU.
+		await new Promise(resolve => setImmediate(resolve))
 	}
 
 	log.flush()

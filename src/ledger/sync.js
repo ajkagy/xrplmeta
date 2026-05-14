@@ -88,6 +88,12 @@ export async function startSync({ ctx }){
 			}
 
 			log.time.debug(`sync.cycle`, `sync cycle took % for`, ledger.transactions.length, `tx`)
+
+			// Yield between ledgers so HTTP/WebSocket events get a slice of the
+			// event loop. Each ledger's transaction is a single synchronous
+			// better-sqlite3 transaction — without yielding we monopolise CPU
+			// during backfill catch-up and HTTP requests time out at the gateway.
+			await new Promise(resolve => setImmediate(resolve))
 		}
 	})()
 

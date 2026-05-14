@@ -5,6 +5,7 @@ import { applyLedgerStateFromTransactions } from './state/index.js'
 import { updateDerived } from './derived/index.js'
 import { pullNewItems, readTableHeads } from '../db/helpers/heads.js'
 import { wait } from '../lib/time.js'
+import { httpLoadPending } from '../cache/worker.js'
 
 
 export async function startBackfill({ ctx }){
@@ -68,6 +69,8 @@ export async function startBackfill({ ctx }){
 			}
 		})
 
-		await wait(10)
+		// Back off harder when HTTP requests are in flight so users get priority.
+		let pending = httpLoadPending()
+		await wait(pending > 0 ? Math.min(500, 50 * pending) : 10)
 	}
 }
