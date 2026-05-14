@@ -26,6 +26,7 @@ export async function startBackfill({ ctx }){
 	
 	while(true){
 		let { ledger } = await stream.next()
+		let blockStart = process.hrtime.bigint()
 
 		ctx.db.core.tx(() => {
 			ctx = {
@@ -40,11 +41,11 @@ export async function startBackfill({ ctx }){
 
 				applyLedgerEvents({ ctx, ledger })
 				applyLedgerStateFromTransactions({ ctx, ledger })
-				updateDerived({ 
+				updateDerived({
 					ctx,
-					newItems: pullNewItems({ 
-						ctx, 
-						previousHeads: heads 
+					newItems: pullNewItems({
+						ctx,
+						previousHeads: heads
 					})
 				})
 			}catch(error){
@@ -54,6 +55,10 @@ export async function startBackfill({ ctx }){
 				throw error
 			}
 		})
+
+		let elapsedMs = Number(process.hrtime.bigint() - blockStart) / 1e6
+		if(elapsedMs > 500)
+			log.warn(`slow backfill: ledger #${ledger.sequence} (${ledger.transactions.length} txs) took ${elapsedMs.toFixed(0)}ms — blocked event loop`)
 
 		log.accumulate.info({
 			text: [

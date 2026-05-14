@@ -72,6 +72,7 @@ export async function startMetaCacheWorker({ ctx }){
 				continue
 			}
 
+			let blockStart = process.hrtime.bigint()
 			try{
 				switch(todo.task){
 					case 'account.props':
@@ -99,6 +100,10 @@ export async function startMetaCacheWorker({ ctx }){
 			}catch(error){
 				log.warn(`cache update for token ${todo.subject} failed: ${error?.message || error}`)
 			}
+
+			let elapsedMs = Number(process.hrtime.bigint() - blockStart) / 1e6
+			if(elapsedMs > 500)
+				log.warn(`slow cache task: ${todo.task} for subject ${todo.subject} took ${elapsedMs.toFixed(0)}ms (THIS BLOCKED THE EVENT LOOP)`)
 
 			ctx.db.cache.todos.deleteOne({ where: { id: todo.id } })
 

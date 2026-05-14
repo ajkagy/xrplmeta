@@ -31,7 +31,8 @@ export async function startSync({ ctx }){
 			log.time.debug(`sync.cycle`)
 
 			let { ledger, ledgersBehind } = await stream.next()
-	
+			let blockStart = process.hrtime.bigint()
+
 			ctx.db.core.tx(() => {
 				ctx = {
 					...ctx,
@@ -89,10 +90,11 @@ export async function startSync({ ctx }){
 
 			log.time.debug(`sync.cycle`, `sync cycle took % for`, ledger.transactions.length, `tx`)
 
-			// Yield between ledgers so HTTP/WebSocket events get a slice of the
-			// event loop. Each ledger's transaction is a single synchronous
-			// better-sqlite3 transaction — without yielding we monopolise CPU
-			// during backfill catch-up and HTTP requests time out at the gateway.
+			let elapsedMs = Number(process.hrtime.bigint() - blockStart) / 1e6
+			if(elapsedMs > 500)
+				log.warn(`slow sync: ledger #${ledger.sequence} (${ledger.transactions.length} txs) took ${elapsedMs.toFixed(0)}ms — blocked event loop`)
+
+			// Yield between ledgers so HTTP/WebSocket events get a slice of the loop.
 			await new Promise(resolve => setImmediate(resolve))
 		}
 	})()

@@ -85,6 +85,14 @@ async function createFeed({ ctx, ledgerSequence, marker, node }){
 	)
 }
 
+// Process each chunk in mini-batches of MINI_BATCH_SIZE objects, with a yield
+// between batches. Each batch is its own SQLite transaction. Total work is the
+// same; what changes is that the event loop gets a chance to service HTTP
+// requests, WebSocket frames, and reconnect timers between batches — without
+// this, a single 10000-object chunk blocks Node for 20+ seconds and the WS
+// handshake to rippled times out internally (reported as code 1006).
+const MINI_BATCH_SIZE = parseInt(process.env.XRPLMETA_SNAPSHOT_MINI_BATCH || '200', 10)
+
 async function copyFromFeed({ ctx, feed }){
 	let firstChunkSeen = false
 
@@ -96,26 +104,51 @@ async function copyFromFeed({ ctx, feed }){
 
 		if(!firstChunkSeen){
 			firstChunkSeen = true
-			log.info(`first snapshot chunk received (${chunk.objects.length} objects); ingesting...`)
+			log.info(`first snapshot chunk received (${chunk.objects.length} objects); ingesting in mini-batches of ${MINI_BATCH_SIZE}...`)
 		}
 
-		ctx.db.core.tx(() => {
-			applyLedgerStateFromObjects({
-				ctx,
-				objects: chunk.objects
-			})
+		// Slice the chunk into mini-batches. Each batch is one tx.
+		let total = chunk.objects.length
+		let processedInChunk = 0
 
-			ctx.snapshotState = ctx.db.core.snapshots.updateOne({
-				data: {
-					originNode: feed.node,
-					marker: chunk.marker,
-					entriesCount: ctx.snapshotState.entriesCount + chunk.objects.length
-				},
-				where: {
-					id: ctx.snapshotState.id
+		for(let offset = 0; offset < total; offset += MINI_BATCH_SIZE){
+			let batch = chunk.objects.slice(offset, offset + MINI_BATCH_SIZE)
+			let isLastBatch = offset + batch.length >= total
+			let batchStart = process.hrtime.bigint()
+
+			ctx.db.core.tx(() => {
+				applyLedgerStateFromObjects({
+					ctx,
+					objects: batch
+				})
+
+				// Only update the marker on the LAST batch of the chunk. That way,
+				// if we crash mid-chunk, snapshot resumes from the previous marker
+				// and re-processes this chunk's objects from scratch. The state
+				// writes are idempotent (upserts), so re-processing is safe.
+				if(isLastBatch){
+					ctx.snapshotState = ctx.db.core.snapshots.updateOne({
+						data: {
+							originNode: feed.node,
+							marker: chunk.marker,
+							entriesCount: ctx.snapshotState.entriesCount + total
+						},
+						where: { id: ctx.snapshotState.id }
+					})
 				}
 			})
-		})
+
+			processedInChunk += batch.length
+
+			let batchMs = Number(process.hrtime.bigint() - batchStart) / 1e6
+			if(batchMs > 1000)
+				log.warn(`slow snapshot batch: ${batch.length} objects took ${batchMs.toFixed(0)}ms — blocked event loop`)
+
+			// Yield between mini-batches. This is the critical change — the event
+			// loop gets a chance every ~${MINI_BATCH_SIZE} objects instead of waiting
+			// for the entire chunk (which can be 10000+ objects = 20+ seconds blocked).
+			await new Promise(resolve => setImmediate(resolve))
+		}
 
 		log.accumulate.info({
 			text: [
@@ -124,14 +157,9 @@ async function copyFromFeed({ ctx, feed }){
 				`ledger objects (+%objects in %time)`
 			],
 			data: {
-				objects: chunk.objects.length
+				objects: total
 			}
 		})
-
-		// Yield to the event loop between chunks so HTTP requests, WebSocket
-		// pong frames, and reconnect timers all get serviced. Each chunk is a
-		// big synchronous transaction; without yielding, we monopolise CPU.
-		await new Promise(resolve => setImmediate(resolve))
 	}
 
 	log.flush()
