@@ -31,10 +31,9 @@ export async function createSnapshot({ ctx }){
 				})
 			})
 		}catch(error){
-			log.error(`fatal error while copying from ledger feed:`)
-			log.error(error.stack)
-	
-			throw error.stack
+			log.error(`fatal error while copying from ledger feed: ${error?.message || error}`)
+			if(error?.stack) log.error(error.stack)
+			throw error
 		}
 	}
 
