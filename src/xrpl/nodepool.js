@@ -66,24 +66,37 @@ export function createPool(sources){
 		for(let i=0; i<connections; i++){
 			let node = new Node(spec)
 			let firstConnect = true
-			
-			node.on('connected', () => {
-				log.info(
-					firstConnect
-						? `connected to ${spec.url}`
-						: `reconnected to ${spec.url}`
-				)
+			let connectionIndex = i + 1
+			let connectionLabel = connections > 1 ? `${spec.url} (${connectionIndex}/${connections})` : spec.url
 
+			node.on('connected', () => {
+				if(firstConnect){
+					log.info(`connected to ${connectionLabel}`)
+				}else{
+					let { reconnectAttempts } = node.status
+					log.info(`reconnected to ${connectionLabel}${reconnectAttempts > 1 ? ` (after ${reconnectAttempts} attempts)` : ''}`)
+				}
 				firstConnect = false
 			})
 
-			node.on('disconnected', () => {
-				log.info(`lost connection to ${spec.url}:`, node.error)
+			node.on('disconnected', event => {
+				let code = event?.code
+				let level = code === 1000 ? 'info' : 'warn'  // 1000 = clean close; everything else worth a warn
+				log[level](`lost connection to ${connectionLabel}: ${node.error}`)
 				warnAllLost()
 			})
 
+			node.on('reconnecting', ({ attempt, delayMs, lastCode }) => {
+				// Log first attempt at info; subsequent silent unless debug — avoids spam
+				// during long outages with the 60s backoff. Final summary comes on connect.
+				if(attempt === 1)
+					log.info(`reconnecting to ${connectionLabel} in ${(delayMs/1000).toFixed(1)}s (last code: ${lastCode})`)
+				else
+					log.debug(`reconnect attempt #${attempt} to ${connectionLabel} in ${(delayMs/1000).toFixed(1)}s`)
+			})
+
 			node.on('error', () => {
-				log.debug(`failed to connect to ${spec.url}:`, node.error)
+				log.debug(`failed to connect to ${connectionLabel}: ${node.error}`)
 			})
 
 			node.on('event', ({ hash, tx, ledger }) => {

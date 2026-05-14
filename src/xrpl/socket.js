@@ -5,12 +5,16 @@ const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 60_000
 const REQUEST_TIMEOUT_MS = 30_000
 
+// Send a WebSocket-level ping every PING_INTERVAL_MS to keep NATs from idle-killing
+// the TCP socket and to detect silent half-open connections. If no pong arrives
+// within PONG_TIMEOUT_MS the connection is force-closed (which triggers the
+// normal reconnect path).
+const PING_INTERVAL_MS = 30_000
+const PONG_TIMEOUT_MS = 10_000
+
 // Set XRPLMETA_DEBUG_WS=1 to log every request/response payload.
 const DEBUG_WS = process.env.XRPLMETA_DEBUG_WS === '1'
 
-// JSON replacer: convert BigInt to plain numbers when safe (this avoids
-// "TypeError: Do not know how to serialize a BigInt" coming back from
-// structdb-returned ledger sequences that better-sqlite3 hands back as BigInt).
 function jsonReplacer(_, value){
 	if(typeof value === 'bigint'){
 		if(value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER))
@@ -21,28 +25,64 @@ function jsonReplacer(_, value){
 }
 
 // Thin rippled/clio WebSocket client with auto-reconnect and request/response correlation.
-// Drop-in replacement for @xrplkit/socket's `createSocket({ url })`.
 //
-//   socket.request({ command, ... })  -> Promise<{ result, ... }>
-//   socket.status()                   -> { connected: boolean }
+//   socket.request({ command, ... })  -> Promise<.result of XRPL response>
+//   socket.status()                   -> { connected, reconnectAttempts, lastDisconnectReason }
 //   socket.close()                    -> closes permanently (no reconnect)
-//   socket.on('open' | 'close' | 'error' | 'ledgerClosed' | 'transaction', ...)
+//   socket.on('open' | 'close' | 'error' | 'reconnecting' | 'ledgerClosed' | 'transaction', ...)
 export default function createSocket({ url }){
 	let emitter = new EventEmitter()
 	let ws
 	let nextRequestId = 1
 	let inflight = new Map()
 	let reconnectDelay = RECONNECT_BASE_MS
+	let reconnectAttempts = 0
 	let closedByUser = false
 	let connected = false
+	let lastDisconnectReason = null
+
+	let pingTimer = null
+	let pongTimer = null
+
+	function clearKeepalive(){
+		if(pingTimer){ clearInterval(pingTimer); pingTimer = null }
+		if(pongTimer){ clearTimeout(pongTimer); pongTimer = null }
+	}
+
+	function startKeepalive(){
+		clearKeepalive()
+		pingTimer = setInterval(() => {
+			if(!ws || ws.readyState !== WebSocket.OPEN) return
+			try{
+				ws.ping()
+			}catch{
+				return
+			}
+			if(pongTimer) clearTimeout(pongTimer)
+			pongTimer = setTimeout(() => {
+				// No pong within PONG_TIMEOUT_MS — assume the connection is dead and
+				// force-close so the reconnect path takes over.
+				try{ ws.terminate() }catch{}
+			}, PONG_TIMEOUT_MS)
+		}, PING_INTERVAL_MS)
+		if(pingTimer?.unref) pingTimer.unref()
+	}
 
 	function connect(){
 		ws = new WebSocket(url)
 
 		ws.on('open', () => {
 			connected = true
+			let wasReconnect = reconnectAttempts > 0
+			reconnectAttempts = 0
 			reconnectDelay = RECONNECT_BASE_MS
-			emitter.emit('open')
+			lastDisconnectReason = null
+			startKeepalive()
+			emitter.emit('open', { wasReconnect })
+		})
+
+		ws.on('pong', () => {
+			if(pongTimer){ clearTimeout(pongTimer); pongTimer = null }
 		})
 
 		ws.on('message', data => {
@@ -91,13 +131,19 @@ export default function createSocket({ url }){
 		})
 
 		ws.on('close', event => {
+			let wasConnected = connected
 			connected = false
+			clearKeepalive()
 			let reason = typeof event === 'object' ? event : { code: event }
-			failAllInflight(new Error(`socket closed: ${reason.code ?? 'unknown'}`))
-			emitter.emit('close', reason)
+			lastDisconnectReason = reason
+			failAllInflight(new Error(`socket closed: code=${reason.code ?? 'unknown'}${reason.reason ? ` (${reason.reason})` : ''}`))
+			emitter.emit('close', { ...reason, wasConnected })
 
 			if(!closedByUser){
-				setTimeout(connect, reconnectDelay)
+				reconnectAttempts++
+				let delay = reconnectDelay + Math.floor(Math.random() * 250)  // jitter to avoid 5 sockets all hammering at the same instant
+				emitter.emit('reconnecting', { attempt: reconnectAttempts, delayMs: delay, lastCode: reason.code })
+				setTimeout(connect, delay)
 				reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS)
 			}
 		})
@@ -140,8 +186,6 @@ export default function createSocket({ url }){
 					return
 				}
 
-				// Set sentBody up-front (avoid races where the response arrives before we get
-				// a chance to attach it after ws.send returns).
 				inflight.set(id, { resolve, reject, timer, sentBody: body })
 
 				if(DEBUG_WS)
@@ -158,11 +202,12 @@ export default function createSocket({ url }){
 		},
 
 		status(){
-			return { connected }
+			return { connected, reconnectAttempts, lastDisconnectReason }
 		},
 
 		close(){
 			closedByUser = true
+			clearKeepalive()
 			failAllInflight(new Error('socket closed by user'))
 			try{ ws?.close() }catch{}
 		}

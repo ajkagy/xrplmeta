@@ -9,7 +9,7 @@ const DEFAULT_MAX_BYTES = {
 
 const DEFAULT_MAX_REDIRECTS = 5
 
-export function createFetch({ baseUrl, headers, ratelimit, timeout = 20, maxBytes, validateUrls = false } = {}){
+export function createFetch({ baseUrl, headers, ratelimit, timeout = 45, maxBytes, validateUrls = false } = {}){
 	let limiter = ratelimit
 		? new RateLimiter({
 			tokensPerInterval: ratelimit,

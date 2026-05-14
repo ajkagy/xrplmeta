@@ -49,15 +49,19 @@ export default class Node extends EventEmitter{
 		})
 
 		this.socket.on('close', async event => {
-			this.error = event.reason 
+			this.error = event.reason
 				? event.reason
 				: `code ${event.code}`
 
-			this.emit('disconnected')
+			this.emit('disconnected', event)
+		})
+
+		this.socket.on('reconnecting', info => {
+			this.emit('reconnecting', info)
 		})
 
 		this.socket.on('error', error => {
-			this.error = error.message 
+			this.error = error.message
 				? error.message
 				: `unknown connection failure`
 
