@@ -52,7 +52,7 @@ async function crawlList({ ctx, id, url, fetchInterval = 600, trustLevel = 0, ig
 				}
 
 				try{
-					var { issuers: declaredIssuers, tokens: declaredTokens, issues, advisories } = parseXLS26(data)
+					var { issuers: declaredIssuers, tokens: declaredTokens, issues, advisories, repairs } = parseXLS26(data)
 				}catch(error){
 					log.debug(`trustlist [${id}] parse error: ${error?.message}`)
 					if(data && data.length > 0){
@@ -62,12 +62,16 @@ async function crawlList({ ctx, id, url, fetchInterval = 600, trustLevel = 0, ig
 					throw error
 				}
 
+				if(repairs && repairs.length > 0){
+					log.info(`trustlist [${id}] auto-repaired: ${repairs.length} fix(es) applied`)
+					for(let r of repairs)
+						log.debug(`  trustlist [${id}] repair: ${r}`)
+				}
+
 				if(issues.length > 0){
-					log.debug(`trustlist [${id}] has issues: ${
-						issues
-							.map(issue => `  - ${issue}`)
-							.join(`\n`)
-					}`)
+					log.debug(`trustlist [${id}] has ${issues.length} field issue(s):`)
+					for(let issue of issues)
+						log.debug(`  - ${issue}`)
 				}
 				
 				for(let { address, ...props } of declaredIssuers){
@@ -130,7 +134,7 @@ async function crawlList({ ctx, id, url, fetchInterval = 600, trustLevel = 0, ig
 					source: `trustlist/${id}`
 				})
 
-				log.info(`trustlist [${id}] synced (issuers: ${issues.length} tokens: ${tokens.length} advisories: ${advisoryUpdates})`)
+				log.info(`trustlist [${id}] synced (issuers: ${declaredIssuers.length}, tokens: ${tokens.length}, advisories: ${advisoryUpdates}${issues.length > 0 ? `, field issues: ${issues.length}` : ''})`)
 			}
 		})
 	}
