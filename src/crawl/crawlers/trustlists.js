@@ -5,6 +5,7 @@ import { createFetch } from '../../lib/fetch.js'
 import { diffMultiAccountProps, diffMultiTokenProps } from '../../db/helpers/props.js'
 import { currencyUTF8ToHex } from '../../xrpl/tokens.js'
 import { issuerFromMPTIssuanceId } from '../../xrpl/mpt.js'
+import { withSyncOp } from '../../lib/health.js'
 import TokenType from '../../xrpl/tokentype.js'
 
 export default async function({ ctx }){
@@ -52,7 +53,14 @@ async function crawlList({ ctx, id, url, fetchInterval = 600, trustLevel = 0, ig
 				}
 
 				try{
-					var { issuers: declaredIssuers, tokens: declaredTokens, issues, advisories, repairs } = parseXLS26(data)
+					// parseXLS26 is fully synchronous; large trustlists (xrplmeta tokens.toml
+					// has thousands of stanzas) and malformed files that fall through to the
+					// stanza-isolation repair stage can block the loop for seconds.
+					let size = data?.length ?? 0
+					var { issuers: declaredIssuers, tokens: declaredTokens, issues, advisories, repairs } = withSyncOp(
+						`crawler.trustlist.${id}.parseXLS26(len=${size})`,
+						() => parseXLS26(data)
+					)
 				}catch(error){
 					log.debug(`trustlist [${id}] parse error: ${error?.message}`)
 					if(data && data.length > 0){

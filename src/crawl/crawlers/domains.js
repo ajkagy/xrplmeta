@@ -7,6 +7,7 @@ import { createFetch } from '../../lib/fetch.js'
 import { clearAccountProps, clearTokenProps, readAccountProps, writeAccountProps, writeTokenProps } from '../../db/helpers/props.js'
 import { currencyUTF8ToHex } from '../../xrpl/tokens.js'
 import { reduceProps } from '../../srv/procedures/token.js'
+import { withSyncOp } from '../../lib/health.js'
 import TokenType from '../../xrpl/tokentype.js'
 
 
@@ -169,7 +170,12 @@ export async function fetchToml({ domain, fetch }){
 			if(status !== 200)
 				throw new Error(`HTTP ${status}`)
 
-			return parseXLS26(data)
+			// parseXLS26 is fully synchronous and can be expensive on malformed
+			// inputs that fall through to the stanza-isolation repair stage
+			// (re-parses each [[Section]] block up to 4 times). Wrap it so any
+			// long stall here gets attributed in the lag-monitor log line.
+			let size = data?.length ?? 0
+			return withSyncOp(`crawler.domains.parseXLS26(${tomlUrl}, len=${size})`, () => parseXLS26(data))
 		}catch(error){
 			log.debug(`failed ${tomlUrl}: ${error.message}`)
 
