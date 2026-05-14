@@ -131,9 +131,30 @@ export function createPool(sources){
 		{
 			request(payload){
 				return new Promise((resolve, reject) => {
-					let timeout = setTimeout(() => reject('noNodeAcceptedRequest'), 30000)
+					let timeout = setTimeout(() => {
+						// When the request times out unaccepted, surface WHY each node
+						// refused. That's the only way to debug "noNodeAcceptedRequest"
+						// without trial-and-error patching the bidding logic.
+						let snapshot = nodes.map(node => {
+							let status = node.status
+							return {
+								node: node.name,
+								connected: status?.connected,
+								reconnectAttempts: status?.reconnectAttempts,
+								available: node.availableLedgers?.length || 0,
+								busy: !!node.busy,
+								bid: node.bid(payload)
+							}
+						})
+						log.warn(
+							`noNodeAcceptedRequest after 30s for ` +
+							`${payload.command || payload.type} — node states: ` +
+							JSON.stringify(snapshot)
+						)
+						reject('noNodeAcceptedRequest')
+					}, 30000)
 					let accepted = () => clearTimeout(timeout)
-		
+
 					queue.push({
 						payload,
 						resolve,
