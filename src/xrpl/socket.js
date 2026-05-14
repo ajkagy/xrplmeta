@@ -5,6 +5,11 @@ const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 60_000
 const REQUEST_TIMEOUT_MS = 30_000
 
+// If a WebSocket sits in CONNECTING state past this, force-close it. Otherwise
+// a rippled that accepted the TCP connection but never replied to the WS
+// upgrade leaves us hanging forever (no 'open', no 'close', no reconnect).
+const HANDSHAKE_TIMEOUT_MS = 15_000
+
 // WebSocket-level keepalive ping. Off by default because some rippled / proxy
 // configurations don't pong reliably under load, and a missing pong with the
 // heartbeat enabled tears down the connection (causing exactly the 1006 disconnect
@@ -43,6 +48,7 @@ export default function createSocket({ url }){
 	let closedByUser = false
 	let connected = false
 	let lastDisconnectReason = null
+	let lastErrorInfo = null  // populated by 'error' event, consumed by 'close' to enrich the close record
 
 	let pingTimer = null
 	let pongTimer = null
@@ -71,9 +77,22 @@ export default function createSocket({ url }){
 	}
 
 	function connect(){
-		ws = new WebSocket(url)
+		ws = new WebSocket(url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS })
+
+		// Belt-and-braces: even with handshakeTimeout set, some failure modes
+		// (DNS hangs at the libc level, kernel-level TCP retries on a black-hole
+		// route) can leave us in CONNECTING longer than expected. Force-close
+		// after HANDSHAKE_TIMEOUT_MS + 5s so we always recover.
+		let connectingTimer = setTimeout(() => {
+			if(ws && ws.readyState === WebSocket.CONNECTING){
+				emitter.emit('error', new Error(`connect timed out after ${HANDSHAKE_TIMEOUT_MS + 5000}ms in CONNECTING`))
+				try{ ws.terminate() }catch{}
+			}
+		}, HANDSHAKE_TIMEOUT_MS + 5000)
+		if(connectingTimer?.unref) connectingTimer.unref()
 
 		ws.on('open', () => {
+			clearTimeout(connectingTimer)
 			connected = true
 			let wasReconnect = reconnectAttempts > 0
 			reconnectAttempts = 0
@@ -132,25 +151,53 @@ export default function createSocket({ url }){
 			emitter.emit('message', msg)
 		})
 
-		ws.on('close', event => {
+		// The `ws` library emits 'close' with TWO arguments (code, reason buffer),
+		// not a single object. Earlier code assumed an event object, which silently
+		// discarded the reason string — exactly the field that tells us *why*
+		// rippled or a proxy decided to drop us.
+		ws.on('close', (code, reasonBuf) => {
 			let wasConnected = connected
+			clearTimeout(connectingTimer)
 			connected = false
 			clearKeepalive()
-			let reason = typeof event === 'object' ? event : { code: event }
-			lastDisconnectReason = reason
-			failAllInflight(new Error(`socket closed: code=${reason.code ?? 'unknown'}${reason.reason ? ` (${reason.reason})` : ''}`))
-			emitter.emit('close', { ...reason, wasConnected })
+
+			let reasonText = ''
+			if(reasonBuf){
+				try{
+					reasonText = Buffer.isBuffer(reasonBuf) ? reasonBuf.toString('utf8') : String(reasonBuf)
+				}catch{}
+			}
+
+			let info = {
+				code,
+				reason: reasonText || undefined,
+				wasConnected,
+				lastErrorCode: lastErrorInfo?.code,
+				lastErrorMessage: lastErrorInfo?.message
+			}
+			lastDisconnectReason = info
+			failAllInflight(new Error(`socket closed: code=${code ?? 'unknown'}${reasonText ? ` "${reasonText}"` : ''}`))
+			emitter.emit('close', info)
 
 			if(!closedByUser){
 				reconnectAttempts++
-				let delay = reconnectDelay + Math.floor(Math.random() * 250)  // jitter to avoid 5 sockets all hammering at the same instant
-				emitter.emit('reconnecting', { attempt: reconnectAttempts, delayMs: delay, lastCode: reason.code })
+				let delay = reconnectDelay + Math.floor(Math.random() * 250)
+				emitter.emit('reconnecting', { attempt: reconnectAttempts, delayMs: delay, lastCode: code, lastReason: reasonText })
 				setTimeout(connect, delay)
 				reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS)
 			}
 		})
 
 		ws.on('error', err => {
+			// Cache the most recent low-level error so the close handler can attach
+			// it to the disconnect record. 1006 closes don't carry server-supplied
+			// reasons, but the ws/network-layer error often has the actual cause
+			// (ECONNRESET, EHOSTUNREACH, ETIMEDOUT, …).
+			lastErrorInfo = {
+				code: err?.code,
+				message: err?.message,
+				errno: err?.errno
+			}
 			emitter.emit('error', err)
 		})
 	}
@@ -204,7 +251,14 @@ export default function createSocket({ url }){
 		},
 
 		status(){
-			return { connected, reconnectAttempts, lastDisconnectReason }
+			let rs = ws?.readyState
+			let readyState =
+				rs === WebSocket.CONNECTING ? 'CONNECTING' :
+				rs === WebSocket.OPEN       ? 'OPEN' :
+				rs === WebSocket.CLOSING    ? 'CLOSING' :
+				rs === WebSocket.CLOSED     ? 'CLOSED' :
+				'UNKNOWN'
+			return { connected, reconnectAttempts, lastDisconnectReason, readyState }
 		},
 
 		close(){

@@ -81,8 +81,13 @@ export function createPool(sources){
 
 			node.on('disconnected', event => {
 				let code = event?.code
-				let level = code === 1000 ? 'info' : 'warn'  // 1000 = clean close; everything else worth a warn
-				log[level](`lost connection to ${connectionLabel}: ${node.error}`)
+				let level = code === 1000 ? 'info' : 'warn'
+				let parts = [`code ${code ?? '?'}`]
+				if(event?.reason) parts.push(`reason "${event.reason}"`)
+				if(event?.lastErrorCode) parts.push(`err=${event.lastErrorCode}`)
+				if(event?.lastErrorMessage && !event?.reason)
+					parts.push(`errmsg="${event.lastErrorMessage}"`)
+				log[level](`lost connection to ${connectionLabel}: ${parts.join(', ')}`)
 				warnAllLost()
 			})
 
@@ -132,25 +137,33 @@ export function createPool(sources){
 			request(payload){
 				return new Promise((resolve, reject) => {
 					let timeout = setTimeout(() => {
-						// When the request times out unaccepted, surface WHY each node
-						// refused. That's the only way to debug "noNodeAcceptedRequest"
-						// without trial-and-error patching the bidding logic.
 						let snapshot = nodes.map(node => {
 							let status = node.status
 							return {
 								node: node.name,
+								state: status?.readyState,
 								connected: status?.connected,
 								reconnectAttempts: status?.reconnectAttempts,
+								lastDisconnect: status?.lastDisconnectReason?.code,
 								available: node.availableLedgers?.length || 0,
 								busy: !!node.busy,
 								bid: node.bid(payload)
 							}
 						})
+
+						// Helpful summary message — let users diagnose the most-likely cause at a glance.
+						let allConnecting = snapshot.every(s => s.state === 'CONNECTING')
+						let allClosed = snapshot.every(s => s.state === 'CLOSED' || s.state === 'UNKNOWN')
+						let cause = allConnecting
+							? 'all sockets stuck in handshake — rippled may be accepting TCP but not completing the WebSocket upgrade'
+							: allClosed
+								? 'all sockets closed — check rippled is reachable and process logs at this timestamp'
+								: 'mixed states — see per-node details below'
+
 						log.warn(
-							`noNodeAcceptedRequest after 30s for ` +
-							`${payload.command || payload.type} — node states: ` +
-							JSON.stringify(snapshot)
+							`noNodeAcceptedRequest after 30s for ${payload.command || payload.type}: ${cause}`
 						)
+						log.warn(`  node states: ${JSON.stringify(snapshot)}`)
 						reject('noNodeAcceptedRequest')
 					}, 30000)
 					let accepted = () => clearTimeout(timeout)
