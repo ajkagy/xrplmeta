@@ -4,6 +4,18 @@ import { run as runCrawlApp } from './crawl.js'
 import { run as runCacheApp } from './cache.js'
 import { run as runServerApp } from './server.js'
 import createIPC from '../lib/ipc.js'
+import { startHealthMonitor, getEventLoopLag } from '../lib/health.js'
+
+// Begin sampling event loop lag immediately so /v2/health reflects accurate
+// numbers from second one.
+startHealthMonitor()
+
+// Periodic warning if loop lag stays high — useful even without anyone hitting /health
+setInterval(() => {
+	let { p95, peak1m } = getEventLoopLag()
+	if(peak1m > 1000)
+		log.warn(`event-loop lag elevated: p95=${p95}ms, peak in last 60s=${peak1m}ms (HTTP responsiveness will suffer)`)
+}, 60_000).unref?.()
 
 
 function fatal(message, error){

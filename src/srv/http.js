@@ -6,11 +6,32 @@ import log from '../lib/log.js'
 import * as procedures from './api.js'
 import { getCachedIconPath, iconSizes } from '../cache/icons.js'
 import { executeProcedure } from './worker.js'
-import { noteHttpRequestStart, noteHttpRequestEnd } from '../cache/worker.js'
+import { noteHttpRequestStart, noteHttpRequestEnd, httpLoadPending } from '../cache/worker.js'
+import { getEventLoopLag, getProcessSnapshot, isLoopCritical } from '../lib/health.js'
 
 
 export function createRouter({ ctx }){
 	let router = new Router()
+
+	router.get(
+		['/v2/health', '/health'],
+		async svc => {
+			let lag = getEventLoopLag()
+			let proc = getProcessSnapshot()
+			let xrplStatus = (ctx.xrpl?.connectionsCount > 0)
+				? { connections: ctx.xrpl.connectionsCount }
+				: { connections: 0 }
+			svc.type = 'json'
+			svc.body = {
+				status: lag.peak1m > 2000 ? 'degraded' : 'ok',
+				event_loop_lag_ms: lag,
+				http_pending: httpLoadPending(),
+				process: proc,
+				xrpl: xrplStatus,
+				warnings: buildHealthWarnings(lag, proc)
+			}
+		}
+	)
 
 	router.get(
 		['/', '/info', '/server'],
@@ -422,9 +443,24 @@ async function handle({ ctx, svc, procedure, params = {} }){
 		return
 	}
 
-	// Tell the cache workers an HTTP request is in flight — they back off to
-	// give us a fair slice of the event loop. Decrement is in finally so it
-	// runs even on errors.
+	// Load shedding — if the event loop is critically blocked, the gateway will
+	// time out on us anyway (and worse: this request joins the queue making
+	// everything else slower too). Return 503 immediately with Retry-After so
+	// upstream can decide what to do.
+	if(isLoopCritical()){
+		let lag = getEventLoopLag()
+		svc.status = 503
+		svc.set('Retry-After', '2')
+		svc.type = 'json'
+		svc.body = {
+			error: 'overloaded',
+			message: 'server is temporarily overloaded; try again shortly',
+			event_loop_lag_ms: lag.current
+		}
+		log.warn(`shed request "${procedure}" — event loop lag ${lag.current}ms (>${2000}ms threshold)`)
+		return
+	}
+
 	noteHttpRequestStart()
 	let startedAt = Date.now()
 
@@ -436,10 +472,9 @@ async function handle({ ctx, svc, procedure, params = {} }){
 			params
 		})
 
-		// Surface slow requests so we can spot bottlenecks
 		let elapsed = Date.now() - startedAt
 		if(elapsed > 2000)
-			log.warn(`slow request: ${procedure} took ${elapsed}ms`)
+			log.warn(`slow request: ${procedure} took ${elapsed}ms (lag p95=${getEventLoopLag().p95}ms)`)
 	}catch(e){
 		if(e.expose){
 			delete e.expose
@@ -457,6 +492,15 @@ async function handle({ ctx, svc, procedure, params = {} }){
 	}finally{
 		noteHttpRequestEnd()
 	}
+}
+
+function buildHealthWarnings(lag, proc){
+	let warnings = []
+	if(lag.peak1m > 5000) warnings.push(`event-loop lag spiked to ${lag.peak1m}ms in last minute — HTTP will be slow/unavailable during such spikes`)
+	else if(lag.peak1m > 1000) warnings.push(`event-loop lag elevated (peak ${lag.peak1m}ms in last 60s)`)
+	if(proc.heap_used_mb > 2048) warnings.push(`heap usage is high: ${proc.heap_used_mb}MB`)
+	if(proc.rss_mb > 4096) warnings.push(`RSS is high: ${proc.rss_mb}MB`)
+	return warnings
 }
 
 function parseIOUTokenUri(uri){
