@@ -1,10 +1,171 @@
-# xrplmeta API — recent additions
+# Beacon API
 
-This document covers the endpoints and response fields added in the 2.24 line. The
-canonical reference for all stable endpoints is still https://xrplmeta.org/docs.
+Beacon serves a JSON **REST + WebSocket** API. The base token / ledger / server
+endpoints follow the upstream [xrplmeta](https://github.com/xrplmeta/node) API
+(reference: https://xrplmeta.org/docs); **this document covers Beacon's additions and
+changes** — full NFT discovery, AMM / pool data, pool-aware token fields, and a few
+behavioural changes.
 
-All endpoints are exposed under `/v2/...` over HTTP, and via the WebSocket procedure
-of the same name (without the `/v2/` prefix).
+Most endpoints are exposed under `/v2/...` over HTTP **and** via a WebSocket procedure
+of the same name (without the `/v2/` prefix; pass path params like `issuer` / `taxon` /
+`token_id` in the params object). The NFT image route `/v2/nft/:tokenId/image` is the
+only HTTP-only endpoint.
+
+---
+
+## New: NFT discovery endpoints
+
+Beacon indexes every XLS-20 NFT, groups them into collections by `(issuer, taxon)`,
+computes per-collection metrics, and — when `[NFTS.METADATA]` is configured — enriches
+collections and NFTs with off-chain XLS-24 metadata plus a hard-capped image thumbnail
+cache. All of these (except the image route) are also reachable as WebSocket procedures
+of the same name.
+
+> Collection identity is always `(issuer, taxon)` (on-chain). `name` / `image` are
+> optional off-chain enrichment and may be `null`. Floor and volume are quoted in
+> **XRP** (IOU-priced offers/sales are excluded).
+
+### `GET /v2/nfts/collections`
+
+List / rank NFT collections.
+
+| Param | Type | Description |
+|---|---|---|
+| `sort_by` | string | One of `supply`, `holders`, `floor`, `volume_24h`, `volume_7d`, `volume_all`, `trades_24h`, `trades_7d`. Default `volume_24h` (descending). |
+| `name_like` | string | Substring match on the collection's off-chain name (matches only enriched collections). |
+| `issuer` | string | Exact issuer (classic address) filter. Combines with `name_like`. |
+| `limit` | integer | Page size, default `50`, max `1000`. |
+| `offset` | integer | Pagination offset. |
+
+```json
+{
+  "count": 18420,
+  "collections": [
+    {
+      "issuer": "rIssuer...",
+      "taxon": 7,
+      "name": "Cool Cats",          // null until enriched
+      "image": "https://ipfs.io/ipfs/Qm.../collection.png",   // null until enriched
+      "supply": 4096,
+      "holders": 1730,
+      "floor": "12.5",              // lowest active open XRP sell offer (drops→XRP)
+      "volume": { "h24": "1500", "d7": "9800", "all": "412300" },
+      "trades": { "h24": 14, "d7": 92 }
+    }
+  ]
+}
+```
+
+### `GET /v2/nfts/collection/:issuer/:taxon`
+
+One collection summary — same shape as a `collections[]` entry. `404 notFound` if no
+such collection exists.
+
+### `GET /v2/nfts/collection/:issuer/:taxon/nfts`
+
+The **live** NFTs in a collection (burned / transferred-out NFTs are excluded, so
+`count` matches the collection's `supply`), ordered by serial.
+
+| Param | Type | Description |
+|---|---|---|
+| `limit` | integer | default `100`, max `1000` |
+| `offset` | integer | pagination offset |
+
+Returns `{ "count": N, "nfts": [ <NFT object>, ... ] }` (NFT object documented below).
+
+### `GET /v2/nft/:tokenId`
+
+A single NFT plus its active offers.
+
+```json
+{
+  "token_id": "000813...",
+  "issuer": "rIssuer...",
+  "owner": "rOwner...",          // null if burned
+  "taxon": 7,
+  "serial": 1234,
+  "flags": 8,
+  "transfer_fee": 500,
+  "uri": "ipfs://Qm.../1.json",  // raw on-chain URI (hex-decoded), or null
+  "mint_ledger": 91000000,
+  "burn_ledger": null,
+  "name": "Cool Cat #1234",      // off-chain; null until enriched
+  "description": "...",
+  "media_url": "https://ipfs.io/ipfs/Qm.../1.png",  // resolved primary media
+  "media_type": "image",         // image | video | audio | model | html | other
+  "image": "https://ipfs.io/ipfs/Qm.../1.png",      // set only for image media
+  "thumbnail": "https://your-node/v2/nft/000813.../image",  // null unless image media
+  "offers": [
+    {
+      "offer_id": "AE0A...",
+      "account": "rOwner...",
+      "amount": "12.5",
+      "token": { "currency": "XRP" },
+      "is_sell": true,
+      "destination": null,       // set for private / brokered offers
+      "expiration": null,        // unix time, or null
+      "ledger_index": 91000500
+    }
+  ]
+}
+```
+`404 notFound` if the NFT isn't indexed.
+
+### `GET /v2/nfts/collection/:issuer/:taxon/offers`
+
+Active offers across the collection, cheapest first.
+
+| Param | Type | Description |
+|---|---|---|
+| `limit` / `offset` | integer | pagination (`limit` default `100`, max `1000`) |
+
+Returns `{ "count": N, "offers": [...] }` where each offer is the object shown above,
+plus a `token_id` field.
+
+### `GET /v2/nfts/collection/:issuer/:taxon/exchanges`
+
+Sale history for the collection.
+
+| Param | Type | Description |
+|---|---|---|
+| `sequence_start`/`sequence_end` **or** `time_start`/`time_end` | integer | range (defaults to the full available range) |
+| `newest_first` | flag | return newest sales first |
+| `limit` / `offset` | integer | pagination (`limit` default `100`, max `1000`) |
+
+```json
+{
+  "count": 92,
+  "exchanges": [
+    {
+      "tx_hash": "...",
+      "token_id": "000813...",
+      "seller": "rSeller...",
+      "buyer": "rBuyer...",
+      "amount": "12.5",
+      "token": { "currency": "XRP" },
+      "is_sell": true,
+      "ledger_index": 91000700
+    }
+  ]
+}
+```
+
+### `GET /v2/nft/:tokenId/image`
+
+Serves a **cached thumbnail** of the NFT's image, lazily fetched + resized on first
+request and stored in a hard-capped, LRU-evicted on-disk cache.
+
+| Status | Meaning |
+|---|---|
+| `200` | thumbnail bytes (`image/png`) |
+| `302` | redirect to the source image (when `[NFTS.MEDIA] disabled = true`) |
+| `404` | no image for this NFT (non-image media, or not yet enriched) |
+| `503` | image cache busy / node overloaded — retry (honours `Retry-After`) |
+| `400` | malformed token id |
+
+`?size=` selects which configured thumbnail size to serve (`nfts.media.sizes`, default
+`256`). Only **image** media is cached; video / audio / 3D media is URL-only — use the
+NFT's `media_url`. The on-disk cache never exceeds `nfts.media.max_bytes`.
 
 ---
 
@@ -165,6 +326,43 @@ not `holders: 101`. The pool's contribution is visible via the new pool-aware en
 above.
 
 `trustlines` is unchanged — the AMM's trustline literally exists on-ledger, so it counts.
+
+---
+
+## Changed: `server_info`
+
+`GET /v2` (and `/v2/info`, `/v2/server`, and the v1 root `/`) now reports NFT totals
+and the Beacon version:
+
+```json
+{
+  "server_version": "1.0.0",
+  "total_tokens": 51234,
+  "total_ious": 50012,
+  "total_mpts": 1221,
+  "total_nfts": 8204113,
+  "total_nft_collections": 18420,
+  "available_range": { "sequence": { "start": 32570, "end": 91234567 }, "time": { "start": ..., "end": ... } },
+  "trustlists": [ ... ]
+}
+```
+
+`total_nfts` counts all indexed NFTs (including burned). The v1 root (`/`) keeps its
+legacy shape and omits `total_ious` / `total_mpts`.
+
+---
+
+## Changed: list limits & range clamping
+
+- The maximum `limit` on list endpoints (`/v2/tokens`, `/v2/tokens/iou`, `/v2/tokens/mpt`,
+  `/v2/token/:token/holders`) is now **`1000`** (previously `100000`) — a single request
+  can no longer pull an unbounded page and stall the server.
+- A positive `sequence_end` / `time_end` on range endpoints is now **honoured**.
+  Previously the upper bound was silently clamped to the latest ledger; this affects
+  token exchanges / series and the new NFT exchanges endpoint.
+- Bad pagination/range params (`limit`, `offset`, `sequence_*`, `time_*`) that aren't
+  non-negative integers are now rejected with `400 invalidParam` instead of silently
+  coercing.
 
 ---
 

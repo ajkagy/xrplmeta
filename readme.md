@@ -11,6 +11,8 @@ Beacon is a fork of **[xrplmeta](https://github.com/xrplmeta/node)** — the XRP
 
 
 
+📖 **API reference → [`docs/api.md`](docs/api.md)** — the NFT discovery, AMM, and pool-aware endpoints. (Inherited token/ledger endpoints follow the upstream [xrplmeta API](https://xrplmeta.org/docs).)
+
 ## Technical Overview
 
 On the first launch
@@ -48,7 +50,13 @@ For faster backfill, increase `connections` per `[[LEDGER.SOURCE]]` — each con
 
 ## API Documentation
 
-The full list of HTTP/WebSocket endpoints and response fields — including the AMM pool endpoints (`/v2/amms`, `/v2/amm/:account`, `/v2/amm/:account/series`), the `pool` field on token summaries, the `pool`/`pool_source` flags on token holders, and the `only_pools`/`exclude_pools` query filters — is documented in [`docs/api.md`](docs/api.md).
+Beacon's added & changed endpoints are documented in **[`docs/api.md`](docs/api.md)**:
+
+- **NFT discovery** — `/v2/nfts/collections`, `/v2/nfts/collection/:issuer/:taxon`, `.../nfts`, `.../offers`, `.../exchanges`, `/v2/nft/:tokenId`, and the `/v2/nft/:tokenId/image` thumbnail route
+- **AMM pools** — `/v2/amms`, `/v2/amm/:account`, `/v2/amm/:account/series`, plus the `pool` field on token summaries, the `pool`/`pool_source` flags on token holders, and the `only_pools`/`exclude_pools` filters
+- **`server_info`** NFT totals, and the list-limit / range-clamping changes
+
+The inherited token / ledger / server endpoints follow the upstream [xrplmeta API](https://xrplmeta.org/docs).
 
 The node listens for incoming HTTP connections on the port specified in the config file. Connections are either served as REST queries or upgraded to a WebSocket connection.
 
