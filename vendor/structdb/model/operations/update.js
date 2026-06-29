@@ -22,7 +22,10 @@ export function update({ database, struct, data: inputData, where, limit }){
 					throw new TypeError(`field "${key}" has to be a object, as defined in the schema`)
 				}
 
-				if(value[childConf.table.idKey] !== undefined && Object.keys(value).length !== 1){
+				// A node value carrying its idKey means "set this foreign key to that id"
+				// (consistent with create.js). Only a value WITHOUT an id implies a
+				// recursive update of the referenced row, which isn't supported.
+				if(value[childConf.table.idKey] !== undefined){
 					tableData[key] = value[childConf.table.idKey]
 				}else{
 					throw Error(`recursive updates not yet implemented`)
