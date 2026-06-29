@@ -16,7 +16,7 @@ const configPath = args.config
 
 	
 log.config({ level: args.log || 'info', root: '.' })
-	.info(`*** XRPLMETA NODE ${version} ***`)
+	.info(`*** BEACON NODE ${version} ***`)
 	.info(`using config at "${configPath}"`)
 
 

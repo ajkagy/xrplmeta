@@ -1,7 +1,13 @@
 
-# The XRPL Meta Node
+# Beacon
 
-XRPL Meta collects metadata about digital assets on the XRP Ledger. It makes the data available via a JSON REST and WebSocket API, just like [rippled](https://github.com/XRPLF/rippled). It connects to one or multiple rippled or [clio](https://github.com/XRPLF/clio) nodes and tracks updates in real time. Historical data is being backfilled.
+**Beacon** is a full-featured indexer and metadata API for the XRP Ledger. It tracks every asset class — IOU & MPT tokens, AMM pools, Single-Asset Vaults, Price Oracles, and full NFT (XLS-20) discovery with collections, floor/volume metrics and off-chain metadata — and serves it over a JSON REST and WebSocket API, just like [rippled](https://github.com/XRPLF/rippled). It connects to one or multiple rippled or [clio](https://github.com/XRPLF/clio) nodes, tracks updates in real time, and backfills historical data.
+
+## Credits & attribution
+
+Beacon is a fork of **[xrplmeta](https://github.com/xrplmeta/node)** — the XRP Ledger metadata node — and full credit for the original project and its foundational architecture goes to its author. Beacon builds on that foundation with substantial additions: full NFT discovery (collections, supply/holders/floor/volume metrics, off-chain XLS-24 metadata and a hard-capped, LRU-evicting image cache), activated AMM / Vault / Oracle indexing, a worker-thread API layer, and extensive correctness, performance and security hardening.
+
+> **Licensing note:** the upstream xrplmeta project publishes no explicit license, so its code is under default copyright ("all rights reserved"). Beacon is offered in good faith as an attributed derivative. If you plan to redistribute or operate it, please respect the original author's rights and consider contacting them to clarify licensing terms.
 
 
 

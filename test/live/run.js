@@ -40,7 +40,7 @@ log.config({
 		path.join(__dirname, '..', '..')
 	)
 })
-log.info(`*** XRPLMETA NODE LIVE COMPONENT TEST ***`)
+log.info(`*** BEACON NODE LIVE COMPONENT TEST ***`)
 log.info(`testing component "${component}"`)
 log.info(`using config at "${configPath}"`)
 

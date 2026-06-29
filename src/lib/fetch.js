@@ -33,7 +33,7 @@ export function createFetch({ baseUrl, headers, ratelimit, timeout = 45, maxByte
 				url: sanitizedUrl,
 				signal: controller.signal,
 				headers: {
-					'user-agent': 'XRPL-Meta-Node (https://xrplmeta.org)',
+					'user-agent': 'Beacon (XRP Ledger metadata indexer)',
 					...headers,
 					...options.headers
 				},

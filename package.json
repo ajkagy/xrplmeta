@@ -1,12 +1,13 @@
 {
-	"name": "xrplmeta",
-	"version": "2.24.0-alpha",
+	"name": "beacon",
+	"version": "1.0.0",
+	"description": "Beacon — a full-featured XRP Ledger metadata, asset, and NFT discovery indexer with a REST/WebSocket API. Forked from xrplmeta (https://github.com/xrplmeta/node).",
 	"type": "module",
 	"engines": {
 		"node": ">=20.0.0"
 	},
 	"bin": {
-		"xrplmeta": "./src/run.js"
+		"beacon": "./src/run.js"
 	},
 	"scripts": {
 		"start": "node src/run.js",
