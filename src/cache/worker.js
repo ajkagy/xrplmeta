@@ -8,6 +8,7 @@ import {
 	updateCacheForTokenProps
 } from './tokens.js'
 import { updateIconCacheFor } from './icons.js'
+import { updateCacheForNFTCollection } from './nfts.js'
 
 
 // Throttling — better-sqlite3 is synchronous, so each cache update blocks the
@@ -97,6 +98,9 @@ export async function startMetaCacheWorker({ ctx }){
 						break
 					case 'token.metrics.marketcap':
 						updateCacheForTokenMetrics({ ctx, token: { id: todo.subject }, metrics: { marketcap: true } })
+						break
+					case 'nftCollection.metrics':
+						updateCacheForNFTCollection({ ctx, collection: { id: todo.subject } })
 						break
 				}
 			}catch(error){

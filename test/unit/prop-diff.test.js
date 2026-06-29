@@ -73,8 +73,8 @@ describe(
 	() => {
 		it(
 			'execute with new data',
-			() => {
-				diffMultiAccountProps({
+			async () => {
+				await diffMultiAccountProps({
 					ctx,
 					accounts,
 					source: 'test'
@@ -91,8 +91,8 @@ describe(
 
 		it(
 			'execute with one account removed',
-			() => {
-				diffMultiAccountProps({
+			async () => {
+				await diffMultiAccountProps({
 					ctx,
 					accounts: accounts.slice(0, 2),
 					source: 'test'
@@ -109,12 +109,12 @@ describe(
 
 		it(
 			'should also remove specific removed props',
-			() => {
+			async () => {
 				let accountsChanged = structuredClone(accounts)
 
 				delete accountsChanged[0].props.name
 
-				diffMultiAccountProps({
+				await diffMultiAccountProps({
 					ctx,
 					accounts: accountsChanged,
 					source: 'test'
@@ -132,8 +132,8 @@ describe(
 	() => {
 		it(
 			'execute with new data',
-			() => {
-				diffMultiTokenProps({
+			async () => {
+				await diffMultiTokenProps({
 					ctx,
 					tokens,
 					source: 'test'
@@ -150,8 +150,8 @@ describe(
 
 		it(
 			'execute with one token removed',
-			() => {
-				diffMultiTokenProps({
+			async () => {
+				await diffMultiTokenProps({
 					ctx,
 					tokens: tokens.slice(0, 2),
 					source: 'test'
@@ -168,12 +168,12 @@ describe(
 
 		it(
 			'should also remove specific removed props',
-			() => {
+			async () => {
 				let tokensChanged = structuredClone(tokens)
 
 				delete tokensChanged[0].props.name
 
-				diffMultiTokenProps({
+				await diffMultiTokenProps({
 					ctx,
 					tokens: tokensChanged,
 					source: 'test'

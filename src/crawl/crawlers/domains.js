@@ -22,7 +22,12 @@ export default async function({ ctx }){
 	}
 	
 	let fetch = createFetch({
-		timeout: config.connectionTimeout || 20
+		timeout: config.connectionTimeout || 20,
+		// Issuer domains are fully attacker-controlled (anyone can issue a token and
+		// set its domain), so the SSRF guard in lib/url.js must run on the initial
+		// URL and every redirect hop. (Note: this blocks IP-literal hosts; a hostname
+		// that DNS-resolves to a private IP is a separate, deeper mitigation.)
+		validateUrls: true
 	})
 
 	while(true){

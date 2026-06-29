@@ -58,8 +58,11 @@ export function fromString(str){
 		str = str.slice(0, e)
 	}
 
-	if(point > 0){
-		mantissa = BigInt(str.slice(0, point) + str.slice(point + 1))
+	if(point >= 0){
+		let digits = str.slice(0, point) + str.slice(point + 1)
+		if(digits === '')
+			throw new Error(`invalid XFL string: "${str}"`)
+		mantissa = BigInt(digits)
 		exponent += BigInt(point - str.length + 1)
 	}else{
 		mantissa = BigInt(str)

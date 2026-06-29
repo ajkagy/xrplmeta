@@ -110,10 +110,40 @@
 				"$ref": "#/definitions/NFTokenExchange"
 			}
 		},
+		"nftCollections": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/NFTokenCollection"
+			}
+		},
 		"mptokenMetadataUpdates": {
 			"type": "array",
 			"items": {
 				"$ref": "#/definitions/MPTokenMetadataUpdate"
+			}
+		},
+		"ammPools": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/AmmPool"
+			}
+		},
+		"vaults": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/Vault"
+			}
+		},
+		"oracles": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/Oracle"
+			}
+		},
+		"unknownLedgerEntryTypes": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/UnknownLedgerEntryType"
 			}
 		}
 	},
@@ -675,6 +705,31 @@
 				["book", "ledgerSequence", "lastLedgerSequence", "quality"]
 			]
 		},
+		"NFTokenCollection": {
+			"type": "object",
+			"properties": {
+				"id": {
+					"type": "integer",
+					"id": true
+				},
+				"issuer": {
+					"$ref": "#/definitions/Account"
+				},
+				"taxon": {
+					"type": "integer"
+				},
+				"firstSeenLedger": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"issuer",
+				"taxon"
+			],
+			"unique": [
+				["issuer", "taxon"]
+			]
+		},
 		"NFToken": {
 			"type": "object",
 			"properties": {
@@ -688,9 +743,30 @@
 				"owner": {
 					"$ref": "#/definitions/Account"
 				},
+				"collection": {
+					"$ref": "#/definitions/NFTokenCollection"
+				},
 				"tokenId": {
 					"type": "string",
 					"format": "hex"
+				},
+				"taxon": {
+					"type": "integer"
+				},
+				"flags": {
+					"type": "integer"
+				},
+				"transferFee": {
+					"type": "integer"
+				},
+				"serial": {
+					"type": "integer"
+				},
+				"mintLedgerSequence": {
+					"type": "integer"
+				},
+				"burnLedgerSequence": {
+					"type": "integer"
 				},
 				"uri": {
 					"type": "string"
@@ -702,6 +778,9 @@
 			],
 			"unique": [
 				"tokenId"
+			],
+			"index": [
+				["collection"]
 			]
 		},
 		"NFTokenOffer": {
@@ -720,6 +799,9 @@
 				},
 				"nft": {
 					"$ref": "#/definitions/NFToken"
+				},
+				"collection": {
+					"$ref": "#/definitions/NFTokenCollection"
 				},
 				"ledgerSequence": {
 					"type": "integer"
@@ -755,7 +837,8 @@
 				"offerId"
 			],
 			"index": [
-				["nft", "ledgerSequence:desc", "lastLedgerSequence"]
+				["nft", "ledgerSequence:desc", "lastLedgerSequence"],
+				["collection", "isSellOffer", "lastLedgerSequence"]
 			]
 		},
 		"NFTokenExchange": {
@@ -778,6 +861,25 @@
 				"nft": {
 					"$ref": "#/definitions/NFToken"
 				},
+				"collection": {
+					"$ref": "#/definitions/NFTokenCollection"
+				},
+				"seller": {
+					"$ref": "#/definitions/Account"
+				},
+				"buyer": {
+					"$ref": "#/definitions/Account"
+				},
+				"amountToken": {
+					"$ref": "#/definitions/Token"
+				},
+				"amountValue": {
+					"type": "string",
+					"format": "xrpl/xfl"
+				},
+				"isSellOffer": {
+					"type": "boolean"
+				},
 				"ledgerSequence": {
 					"type": "integer"
 				}
@@ -793,7 +895,8 @@
 				"txHash"
 			],
 			"index": [
-				["nft", "ledgerSequence"]
+				["nft", "ledgerSequence"],
+					["collection", "ledgerSequence"]
 			]
 		},
 		"MPTokenMetadataUpdate": {
@@ -913,13 +1016,16 @@
 					"type": "string"
 				},
 				"assetsTotal": {
-					"type": "xfl"
+					"type": "string",
+				"format": "xrpl/xfl"
 				},
 				"assetsAvailable": {
-					"type": "xfl"
+					"type": "string",
+				"format": "xrpl/xfl"
 				},
 				"assetsMaximum": {
-					"type": "xfl"
+					"type": "string",
+				"format": "xrpl/xfl"
 				},
 				"flags": {
 					"type": "integer"

@@ -68,7 +68,7 @@ export default async function({ ctx }){
 					}
 				}
 
-				diffMultiAccountProps({
+				await diffMultiAccountProps({
 					ctx,
 					accounts,
 					source: 'bithomp/services'

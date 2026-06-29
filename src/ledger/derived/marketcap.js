@@ -4,7 +4,7 @@ import { readTokenMetricSeries, readTokenMetrics, writeTokenMetrics } from '../.
 import { readTokenExchangeAligned, alignTokenExchange } from '../../db/helpers/tokenexchanges.js'
 
 
-export function updateMarketcapFromExchange({ ctx, exchange }){
+export function updateMarketcapFromExchange({ ctx, exchange, skipTokenIds }){
 	try{
 		exchange = alignTokenExchange({
 			exchange,
@@ -16,6 +16,11 @@ export function updateMarketcapFromExchange({ ctx, exchange }){
 		}
 		return
 	}
+
+	// This token's marketcap is recomputed authoritatively by the supply pass this
+	// ledger; skip here so we don't write a divergent value that gets overwritten.
+	if(skipTokenIds?.has(exchange.base?.id))
+		return
 
 	if(ctx.backwards){
 		let firstMarketcap = ctx.db.core.tokenMarketcap.readOne({
@@ -35,7 +40,9 @@ export function updateMarketcapFromExchange({ ctx, exchange }){
 			token: exchange.base,
 			metric: 'supply',
 			sequenceStart: ctx.ledgerSequence,
-			sequenceEnd: firstMarketcap?.ledgerSequence
+			// Exclusive upper bound: the boundary ledger already holds a correct
+			// forward-computed marketcap, so backfilling it again would overwrite it.
+			sequenceEnd: firstMarketcap ? firstMarketcap.ledgerSequence - 1 : undefined
 		})
 
 		for(let { ledgerSequence: sequence, value: supply } of series){

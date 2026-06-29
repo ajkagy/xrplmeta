@@ -8,6 +8,24 @@
 				"$ref": "#/definitions/Token"
 			}
 		},
+		"nftCollections": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/NFTokenCollection"
+			}
+		},
+		"nftMeta": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/NFTMeta"
+			}
+		},
+		"nftMedia": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/NFTMedia"
+			}
+		},
 		"icons": {
 			"type": "array",
 			"items": {
@@ -256,6 +274,120 @@
 				"takers7D"
 			]
 		},
+		"NFTokenCollection": {
+			"type": "object",
+			"properties": {
+				"id": {
+					"type": "integer",
+					"id": true
+				},
+				"collection": {
+					"type": "integer"
+				},
+				"issuerAddress": {
+					"type": "string"
+				},
+				"taxon": {
+					"type": "integer"
+				},
+				"name": {
+					"type": "string"
+				},
+				"imageUrl": {
+					"type": "string"
+				},
+				"enrichedTime": {
+					"type": "integer"
+				},
+				"supply": {
+					"type": "integer",
+					"default": 0
+				},
+				"holders": {
+					"type": "integer",
+					"default": 0
+				},
+				"floor": {
+					"type": "string",
+					"format": "xrpl/xfl",
+					"default": "0"
+				},
+				"volume24H": {
+					"type": "string",
+					"format": "xrpl/xfl",
+					"default": "0"
+				},
+				"volume7D": {
+					"type": "string",
+					"format": "xrpl/xfl",
+					"default": "0"
+				},
+				"volumeAll": {
+					"type": "string",
+					"format": "xrpl/xfl",
+					"default": "0"
+				},
+				"trades24H": {
+					"type": "integer",
+					"default": 0
+				},
+				"trades7D": {
+					"type": "integer",
+					"default": 0
+				}
+			},
+			"required": [
+				"collection",
+				"issuerAddress",
+				"taxon"
+			],
+			"unique": [
+				"collection"
+			],
+			"index": [
+				"issuerAddress",
+				"taxon",
+				"supply",
+				"holders",
+				"floor",
+				"volume24H",
+				"volume7D",
+				"volumeAll",
+				"trades24H",
+				"trades7D"
+			]
+		},
+		"NFTMeta": {
+			"type": "object",
+			"properties": {
+				"id": { "type": "integer", "id": true },
+				"tokenId": { "type": "string" },
+				"name": { "type": "string" },
+				"description": { "type": "string" },
+				"mediaUrl": { "type": "string" },
+				"mediaType": { "type": "string" },
+				"imageUrl": { "type": "string" },
+				"fetchedTime": { "type": "integer" },
+				"error": { "type": "string" }
+			},
+			"required": [ "tokenId" ],
+			"unique": [ "tokenId" ]
+		},
+		"NFTMedia": {
+			"type": "object",
+			"properties": {
+				"id": { "type": "integer", "id": true },
+				"hash": { "type": "string" },
+				"sourceUrl": { "type": "string" },
+				"fileType": { "type": "string" },
+				"sizeBytes": { "type": "integer", "default": 0 },
+				"lastAccess": { "type": "integer" },
+				"timeCreated": { "type": "integer" }
+			},
+			"required": [ "hash", "sourceUrl" ],
+			"unique": [ "hash" ],
+			"index": [ "lastAccess", "sourceUrl" ]
+		},
 		"Icon": {
 			"type": "object",
 			"properties": {
@@ -346,7 +478,8 @@
 						"token.metrics.holders",
 						"token.metrics.supply",
 						"token.metrics.marketcap",
-						"token.icons"
+						"token.icons",
+						"nftCollection.metrics"
 					]
 				},
 				"subject": {

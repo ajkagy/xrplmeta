@@ -7,12 +7,15 @@ import Node from './node.js'
 
 export function createPool(sources){
 	let events = new EventEmitter()
-	let seenHashes = []
+	let seenHashes = new Set()
+	let seenHashOrder = []
+	let pendingLedgers = new Map()   // ledger_index -> ledger being assembled
 	let queue = []
 	let nodes = []
-	let latestLedger
 	let closed = false
-	
+
+	const MAX_PENDING_LEDGERS = 20
+
 	async function workQueue(){
 		while(!closed){
 			for(let i=0; i<queue.length; i++){
@@ -41,13 +44,45 @@ export function createPool(sources){
 	}
 
 	function sawHash(hash){
-		if(seenHashes.includes(hash))
+		if(seenHashes.has(hash))
 			return true
 
-		seenHashes.push(hash)
+		seenHashes.add(hash)
+		seenHashOrder.push(hash)
 
-		if(seenHashes.length > 10000)
-			seenHashes.shift()
+		if(seenHashOrder.length > 10000)
+			seenHashes.delete(seenHashOrder.shift())
+
+		return false
+	}
+
+	// Get (or create) the per-sequence assembly buffer. Created on demand so
+	// transactions that arrive BEFORE their ledgerClosed header aren't dropped.
+	function bufferFor(sequence){
+		let pending = pendingLedgers.get(sequence)
+
+		if(!pending){
+			pending = { transactions: [], txn_count: undefined }
+			pendingLedgers.set(sequence, pending)
+
+			// Bound memory — drop the oldest still-incomplete ledgers.
+			while(pendingLedgers.size > MAX_PENDING_LEDGERS){
+				let oldest = Math.min(...pendingLedgers.keys())
+				pendingLedgers.delete(oldest)
+			}
+		}
+
+		return pending
+	}
+
+	// Emit a ledger once its header (txn_count) AND all its transactions are in.
+	function tryEmitLedger(sequence){
+		let pending = pendingLedgers.get(sequence)
+
+		if(pending && pending.txn_count !== undefined && pending.transactions.length === pending.txn_count){
+			pendingLedgers.delete(sequence)
+			events.emit('ledger', formatLedger(pending))
+		}
 	}
 
 	function warnAllLost(){
@@ -108,18 +143,35 @@ export function createPool(sources){
 				if(sawHash(hash))
 					return
 
+				// Assemble each ledger in its OWN buffer keyed by sequence. A single
+				// shared buffer (across the pool's N connections, or when a new
+				// ledgerClosed arrives before the previous ledger's txs finish) let
+				// transactions leak into the wrong ledger or a ledger never complete.
+				// Transactions can arrive before OR after their ledgerClosed header, so
+				// both paths merge into the same per-sequence buffer (see bufferFor).
 				if(ledger){
-					latestLedger = { ...ledger, transactions: [] }
+					let pending = bufferFor(ledger.ledger_index)
+					let transactions = pending.transactions
+					// Merge header fields (txn_count, ledger_hash, ...) without dropping
+					// any txs that arrived ahead of the header.
+					Object.assign(pending, ledger, { transactions })
+					tryEmitLedger(ledger.ledger_index)
 				}
 
-				if(latestLedger){
-					if(tx){
-						latestLedger.transactions.push(tx)
+				if(tx){
+					let sequence = tx.ledger_index ?? tx.transaction?.ledger_index
+
+					if(sequence == null){
+						// Older rippld may omit ledger_index on the tx stream — fall back
+						// to the newest in-flight ledger, or drop if none.
+						if(pendingLedgers.size === 0)
+							return
+						sequence = Math.max(...pendingLedgers.keys())
 					}
 
-					if(latestLedger.transactions.length === latestLedger.txn_count){
-						events.emit('ledger', formatLedger(latestLedger))
-					}
+					let pending = bufferFor(sequence)
+					pending.transactions.push(tx)
+					tryEmitLedger(sequence)
 				}
 			})
 

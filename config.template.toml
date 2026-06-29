@@ -120,3 +120,44 @@ source_ranking = [
 	'xrpscan',
 	'x'
 ]
+
+
+# NFT metadata + media (XLS-20 / XLS-24). Resolves NFT token URIs to fetch off-chain
+# metadata (names, attributes, media URLs) and optionally caches image thumbnails.
+[NFTS.METADATA]
+# Set to true to disable all off-chain NFT metadata fetching.
+disabled = false
+
+# IPFS gateways used to resolve ipfs:// URIs, in preference order.
+gateways = [
+	"https://ipfs.io",
+	"https://cloudflare-ipfs.com"
+]
+
+# How many of the top collections (by volume) to eagerly enrich with metadata.
+# The long tail is enriched lazily/on-demand, keeping outbound fetches bounded.
+eager_top_n = 1000
+
+# Seconds before re-checking a mutable (http) metadata URI. ipfs:// content is
+# treated as immutable and never re-fetched.
+fetch_interval = 86400
+
+# Maximum metadata JSON size to download (bytes).
+max_bytes = 5_000_000
+
+# Concurrent metadata fetches.
+concurrency = 4
+
+
+# Image thumbnail cache. Images are cached lazily (only when first served) and the
+# total on-disk size NEVER exceeds max_bytes — least-recently-served thumbnails are
+# evicted first. Non-image media (video / audio / 3D) is never downloaded; only its
+# URL is stored. Set disabled = true to serve image URLs without any local caching.
+[NFTS.MEDIA]
+disabled = false
+
+# Hard cap on total disk used by cached NFT thumbnails (bytes). Default 20 GB.
+max_bytes = 20_000_000_000
+
+# Thumbnail sizes (px) generated per cached image.
+sizes = [ 256 ]

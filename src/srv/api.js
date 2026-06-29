@@ -3,6 +3,8 @@ import { sanitizeToken, sanitizeTokenListSortBy, sanitizeNameLike, sanitizeTrust
 import { adjustServerInfoResponse, serveServerInfo } from './procedures/server.js'
 import { serveTokenSummary, serveTokenSeries, serveTokenList, subscribeTokenList, unsubscribeTokenList, serveTokenExchanges, serveTokenHolders, adjustTokenResponse, adjustTokensResponse } from './procedures/token.js'
 import { serveAmmList, serveAmmByAccount, serveAmmSeries } from './procedures/amm.js'
+import { serveNFTCollectionList, serveNFTCollection, serveNFTsByCollection, serveNFT, serveNFTCollectionOffers, serveNFTCollectionExchanges } from './procedures/nft.js'
+import { sanitizeNFTCollection, sanitizeNFTokenId, sanitizeNFTCollectionSortBy } from './sanitizers/nft.js'
 import { serveLedger } from './procedures/ledger.js'
 import TokenType from '../xrpl/tokentype.js'
 import { addLedgerV1DeprecationWarning, addServerInfoV1DeprecationWarning, addTokenHoldersV1DeprecationWarning, addTokensV1DeprecationWarning, addTokenV1DeprecationWarning, addTokenExchangesV1DeprecationWarning } from './warnings/warning.js'
@@ -30,7 +32,7 @@ export const ledger = compose([
 ])
 
 export const tokens_v1 = compose([
-	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 100000 }),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
 	sanitizeNameLike(),
 	sanitizeTrustLevels(),
 	sanitizeTokenListSortBy({ tokenType: TokenType.IOU }),
@@ -41,7 +43,7 @@ export const tokens_v1 = compose([
 ])
 
 export const tokens = compose([
-	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 100000 }),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
 	sanitizeNameLike(),
 	sanitizeTrustLevels(),
 	sanitizeTokenListSortBy(),
@@ -50,7 +52,7 @@ export const tokens = compose([
 ])
 
 export const iou_tokens = compose([
-	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 100000 }),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
 	sanitizeNameLike(),
 	sanitizeTrustLevels(),
 	sanitizeTokenListSortBy({ tokenType: TokenType.IOU }),
@@ -60,7 +62,7 @@ export const iou_tokens = compose([
 ])
 
 export const mpt_tokens = compose([
-	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 100000 }),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
 	sanitizeNameLike(),
 	sanitizeTrustLevels(),
 	sanitizeTokenListSortBy({ tokenType: TokenType.MPT }),
@@ -69,18 +71,26 @@ export const mpt_tokens = compose([
 	adjustTokensResponse(),
 ])
 
-export const tokens_subscribe_v1 = compose([
-	sanitizeToken({ key: 'tokens', array: true }),
-	sanitizeSourcePreferences(),
-	subscribeTokenList(),
-	tag({ mustRunMainThread: true })
-])
+// These rely on ctx.client (the per-connection subscription map), which only exists
+// on the main thread. The flag must live on the exported procedure FUNCTION so
+// executeProcedure runs it locally — composing tag() into the chain only assigned it
+// to the response value, so it was being (incorrectly) dispatched to a worker.
+export const tokens_subscribe_v1 = Object.assign(
+	compose([
+		sanitizeToken({ key: 'tokens', array: true }),
+		sanitizeSourcePreferences(),
+		subscribeTokenList()
+	]),
+	{ mustRunMainThread: true }
+)
 
-export const tokens_unsubscribe_v1 = compose([
-	sanitizeToken({ key: 'tokens', array: true }),
-	unsubscribeTokenList(),
-	tag({ mustRunMainThread: true })
-])
+export const tokens_unsubscribe_v1 = Object.assign(
+	compose([
+		sanitizeToken({ key: 'tokens', array: true }),
+		unsubscribeTokenList()
+	]),
+	{ mustRunMainThread: true }
+)
 
 export const token_v1 = compose([
 	sanitizeIOUToken({ key: 'token' }),
@@ -128,7 +138,7 @@ export const token_exchanges = compose([
 export const token_holders_v1 = compose([
 	sanitizeIOUToken({ key: 'token' }),
 	sanitizePoint({ defaultToLatest: true }),
-	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 100000 }),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
 	serveTokenHolders(),
 	addTokenHoldersV1DeprecationWarning()
 ])
@@ -136,7 +146,7 @@ export const token_holders_v1 = compose([
 export const token_holders = compose([
 	sanitizeToken({ key: 'token' }),
 	sanitizePoint({ defaultToLatest: true }),
-	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 100000 }),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
 	serveTokenHolders()
 ])
 
@@ -155,6 +165,42 @@ export const amm = compose([
 export const amm_series = compose([
 	sanitizeRange({ withInterval: false, defaultToFullRange: true }),
 	serveAmmSeries()
+])
+
+export const nft_collections = compose([
+	sanitizeLimitOffset({ defaultLimit: 50, maxLimit: 1000 }),
+	sanitizeNameLike(),
+	sanitizeNFTCollectionSortBy(),
+	serveNFTCollectionList()
+])
+
+export const nft_collection = compose([
+	sanitizeNFTCollection(),
+	serveNFTCollection()
+])
+
+export const nft_collection_nfts = compose([
+	sanitizeNFTCollection(),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
+	serveNFTsByCollection()
+])
+
+export const nft_collection_offers = compose([
+	sanitizeNFTCollection(),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
+	serveNFTCollectionOffers()
+])
+
+export const nft_collection_exchanges = compose([
+	sanitizeNFTCollection(),
+	sanitizeRange({ defaultToFullRange: true }),
+	sanitizeLimitOffset({ defaultLimit: 100, maxLimit: 1000 }),
+	serveNFTCollectionExchanges()
+])
+
+export const nft = compose([
+	sanitizeNFTokenId(),
+	serveNFT()
 ])
 
 function sanitizeOptionalToken({ key }){

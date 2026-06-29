@@ -179,7 +179,7 @@ function resolveNesting({ data, include, struct, chain = [] }){
 
 function makeRowIntegerSafe(row){
 	for(let [key, value] of Object.entries(row)){
-		if(typeof value === 'bigint' && value < 9007199254740991n)
+		if(typeof value === 'bigint' && value >= -9007199254740991n && value <= 9007199254740991n)
 			row[key] = Number(value)
 	}
 

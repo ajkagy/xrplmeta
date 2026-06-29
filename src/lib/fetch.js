@@ -1,5 +1,5 @@
 import { RateLimiter } from 'limiter'
-import { sanitize, validate as validateURL } from './url.js'
+import { sanitize, validate as validateURL, isHostPublic } from './url.js'
 
 const DEFAULT_MAX_BYTES = {
 	json: 5 * 1024 * 1024,        // 5 MiB
@@ -80,8 +80,8 @@ async function fetchWithSafeRedirects({ url, signal, headers, validateUrls, maxR
 	if(redirect === 'follow' || redirect === undefined){
 		let current = url
 		for(let i=0; i<=maxRedirects; i++){
-			if(validateUrls && !validateURL(current))
-				throw new Error(`refused to fetch unsafe URL: ${current}`)
+			if(validateUrls)
+				await assertSafeUrl(current)
 
 			let res = await fetch(current, {
 				signal,
@@ -99,10 +99,27 @@ async function fetchWithSafeRedirects({ url, signal, headers, validateUrls, maxR
 		throw new Error(`exceeded ${maxRedirects} redirects`)
 	}
 
-	if(validateUrls && !validateURL(url))
-		throw new Error(`refused to fetch unsafe URL: ${url}`)
+	if(validateUrls)
+		await assertSafeUrl(url)
 
 	return await fetch(url, { signal, headers, redirect: redirect || 'manual' })
+}
+
+// Reject URLs that are textually unsafe OR whose hostname resolves to a private
+// address (DNS-rebinding SSRF). Runs before every fetch hop when validateUrls.
+async function assertSafeUrl(u){
+	if(!validateURL(u))
+		throw new Error(`refused to fetch unsafe URL: ${u}`)
+
+	let hostname
+	try{
+		hostname = new URL(u).hostname
+	}catch{
+		throw new Error(`refused to fetch unparseable URL: ${u}`)
+	}
+
+	if(!(await isHostPublic(hostname)))
+		throw new Error(`refused to fetch URL resolving to a private address: ${u}`)
 }
 
 function tooLarge(){

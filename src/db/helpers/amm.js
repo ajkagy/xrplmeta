@@ -4,6 +4,12 @@ import { readMostRecentLedger, readLedgerAt } from './ledgers.js'
 // Read the current state of all AMM pools with optional pagination + filtering.
 // Pool reserves are computed live from the pseudo-account's balances at the requested ledger.
 export function readAmmPools({ ctx, ledgerSequence, offset = 0, limit = 50, token }){
+	// The ammPools table is not currently registered in the core schema (see
+	// docs/audit findings); the state writer no-ops when it's absent, so guard the
+	// readers too rather than throwing on every /v2/amms request.
+	if(!ctx.db?.core?.ammPools)
+		return { count: 0, pools: [] }
+
 	let where = {}
 
 	if(token){
@@ -53,6 +59,9 @@ export function readAmmPools({ ctx, ledgerSequence, offset = 0, limit = 50, toke
 }
 
 export function readAmmPoolByAccount({ ctx, address, ledgerSequence }){
+	if(!ctx.db?.core?.ammPools)
+		return null
+
 	let pool = ctx.db.core.ammPools.readOne({
 		where: { account: { address } },
 		include: {
@@ -103,6 +112,13 @@ function tokenToApi(token){
 // Read a series of pool snapshots over a sequence or time range.
 // Returns an array of { ledgerSequence, asset1Balance, asset2Balance } points.
 export function readAmmPoolSeries({ ctx, address, sequence, time, points = 50 }){
+	if(!ctx.db?.core?.ammPools)
+		return null
+
+	// Clamp sample count so a large `points` can't collapse `step` to 1 and turn this
+	// into an O(ledger-span) synchronous loop that blocks the event loop (DoS).
+	points = Math.min(Math.max(1, points | 0), 1000)
+
 	let pool = ctx.db.core.ammPools.readOne({
 		where: { account: { address } },
 		include: {

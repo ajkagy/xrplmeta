@@ -138,11 +138,15 @@ export function applyLedgerStateFromTransactions({ ctx, ledger }){
 					LedgerSequence: ModifiedNode.PreviousTxnLgrSeq
 				}
 
-				// When PreviousFields is empty for an MPToken ModifiedNode,
-				// it means the previous MPTAmount was 0 (default). Without this,
-				// previous looks identical to final because FinalFields fills both.
+				// When PreviousFields is empty for an MPToken ModifiedNode, the only
+				// changed field had a default (0) prior value. For balance-moving txs
+				// that means MPTAmount went 0 -> X, so seed previous.MPTAmount = 0.
+				// EXCEPT MPTokenIssuanceSet, which only toggles lock/auth flags and
+				// leaves MPTAmount unchanged — injecting 0 there fabricates a 0 -> X
+				// balance jump and double-counts supply/holders.
 				if(ModifiedNode.LedgerEntryType === 'MPToken'
-					&& Object.keys(ModifiedNode.PreviousFields || {}).length === 0){
+					&& Object.keys(ModifiedNode.PreviousFields || {}).length === 0
+					&& transaction.TransactionType !== 'MPTokenIssuanceSet'){
 					previous.MPTAmount = '0'
 				}
 

@@ -1,4 +1,6 @@
 import { encodeAccountID } from 'ripple-address-codec'
+import { decodeNFTokenId } from '../../xrpl/nftoken.js'
+import { markCacheDirtyForNFTCollection } from '../../cache/todo.js'
 
 
 export function parse({ index, entry }){
@@ -9,7 +11,7 @@ export function parse({ index, entry }){
 	}
 
 	for(let { NFToken } of entry.NFTokens){
-		let issuer = encodeAccountID(Buffer.from(NFToken.NFTokenID.slice(8, 48), 'hex'))
+		let { issuer, taxon, flags, transferFee, serial } = decodeNFTokenId(NFToken.NFTokenID)
 		let uri = NFToken.URI
 			? Buffer.from(NFToken.URI, 'hex')
 			: null
@@ -18,6 +20,10 @@ export function parse({ index, entry }){
 			owner: { address },
 			issuer: { address: issuer },
 			tokenId: NFToken.NFTokenID,
+			taxon,
+			flags,
+			transferFee,
+			serial,
 			uri,
 		})
 	}
@@ -33,8 +39,9 @@ export function diff({ ctx, previous, final }){
 			if(final && final.nfts.some(fNft => fNft.tokenId === pNft.tokenId))
 				continue
 
-			ctx.db.core.nfts.createOne({
-				data: ctx.backwards
+			writeNft({
+				ctx,
+				nft: ctx.backwards
 					? pNft
 					: { ...pNft, owner: null }
 			})
@@ -46,11 +53,43 @@ export function diff({ ctx, previous, final }){
 			if(previous && previous.nfts.some(pNft => pNft.tokenId === fNft.tokenId))
 				continue
 
-			ctx.db.core.nfts.createOne({
-				data: ctx.backwards
+			writeNft({
+				ctx,
+				nft: ctx.backwards
 					? fNft
 					: { ...fNft, owner }
 			})
 		}
 	}
+}
+
+
+// Find-or-create the (issuer, taxon) collection, link the NFT to it, and persist
+// the decoded on-chain fields. mintLedgerSequence is set only when the NFT row is
+// first created (forward) so transfers don't overwrite the mint timestamp.
+function writeNft({ ctx, nft }){
+	let collection = ctx.db.core.nftCollections.createOne({
+		data: {
+			issuer: nft.issuer,
+			taxon: nft.taxon,
+			firstSeenLedger: ctx.ledgerSequence
+		}
+	})
+
+	let isNew = !ctx.db.core.nfts.readOne({
+		where: { tokenId: nft.tokenId },
+		select: { id: true }
+	})
+
+	ctx.db.core.nfts.createOne({
+		data: {
+			...nft,
+			collection: { id: collection.id },
+			...(isNew && !ctx.backwards
+				? { mintLedgerSequence: ctx.ledgerSequence }
+				: {})
+		}
+	})
+
+	markCacheDirtyForNFTCollection({ ctx, collection: { id: collection.id } })
 }

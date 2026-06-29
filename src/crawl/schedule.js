@@ -181,6 +181,12 @@ export async function scheduleBatchedIterator({ ctx, type, where, include, task,
 			noteTaskRecovered(task)
 		}catch(error){
 			logTaskFailure(task, error)
+			// Do NOT mark these items done — a failed commit (HTTP error, rate limit,
+			// bad response) must be retried, not silently abandoned until the next
+			// full fetchInterval. Back off first (like the other schedulers) so a
+			// persistent outage doesn't become a tight retry loop.
+			await wait(3000)
+			return
 		}
 
 		let time = unixNow()

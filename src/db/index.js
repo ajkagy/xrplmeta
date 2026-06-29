@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 
-export async function openDB({ ctx, coreReadOnly=false, inMemory=false }){
+export async function openDB({ ctx, coreReadOnly=false, cacheReadOnly=false, inMemory=false }){
 	return {
 		core: await openCoreDB({
 			ctx,
@@ -21,6 +21,7 @@ export async function openDB({ ctx, coreReadOnly=false, inMemory=false }){
 		}),
 		cache: await openCacheDB({
 			ctx,
+			readOnly: cacheReadOnly,
 			inMemory
 		})
 	}
@@ -50,7 +51,11 @@ export async function openCoreDB({ ctx, readOnly=false, inMemory=false }){
 			)
 		),
 		journalMode: 'WAL',
-		timeout: 600000,
+		// SQLite busy-timeout for ACQUIRING the write lock (not the tx duration). With
+		// several writer connections in one process, 10 min meant a stuck writer could
+		// freeze the thread for that long; 60s fails fast instead while still tolerating
+		// normal contention.
+		timeout: 60000,
 		debug: ctx.config.debug?.queries,
 		codecs,
 		readOnly
@@ -77,7 +82,7 @@ export async function openCoreDB({ ctx, readOnly=false, inMemory=false }){
 	return db
 }
 
-export async function openCacheDB({ ctx, inMemory=false }){
+export async function openCacheDB({ ctx, readOnly=false, inMemory=false }){
 	return await timeStage('openCacheDB.createStructDB', async () => createStructDB({
 		file: inMemory
 			? ':memory:'
@@ -89,6 +94,7 @@ export async function openCacheDB({ ctx, inMemory=false }){
 		),
 		journalMode: 'WAL',
 		debug: ctx.config.debug?.queries,
-		codecs
+		codecs,
+		readOnly
 	}))
 }

@@ -225,7 +225,7 @@ function unlinkCachedIconFromTokenCache({ ctx, token, url }){
 	ctx.db.cache.tokens.updateOne({
 		data: {
 			cachedIcons: {
-				...tokenCache.cachedIcon,
+				...tokenCache.cachedIcons,
 				[url]: undefined
 			}
 		},
@@ -242,14 +242,23 @@ async function downloadAndProcessIcon({ ctx, url }){
 		throw new Error(`refused to fetch unsafe URL: ${url}`)
 
 	let fetch = createFetch({ validateUrls: true })
-	let res = await fetch(url, { raw: true })
-	let mime = res.headers.get('content-type')
+	// Non-raw so createFetch routes the body through readBytesBounded (enforces the
+	// 10 MiB binary cap + content-length check). raw:true skipped all size limits,
+	// letting an issuer-controlled icon URL stream an unbounded body into memory.
+	let { status, headers, data } = await fetch(url)
+	let mime = headers.get('content-type')
 	let fileType = mimeTypes[mime]
+
+	if(status !== 200)
+		throw new Error(`HTTP ${status}`)
 
 	if(!fileType)
 		throw new Error(`unsupported format: ${mime}`)
 
-	let buffer = Buffer.from(await res.arrayBuffer())
+	if(!Buffer.isBuffer(data))
+		throw new Error(`icon response was not binary data`)
+
+	let buffer = data
 	let hash = createHash('md5')
 		.update(buffer)
 		.digest('hex')

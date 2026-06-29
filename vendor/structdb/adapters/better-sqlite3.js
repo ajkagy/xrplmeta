@@ -97,18 +97,15 @@ export default function createAdapter({ file, journalMode, timeout = 10000, read
 			
 			try{
 				var ret = executor()
-	
-				if(ret instanceof Promise){
-					ret
-						.then(ret => {
-							connection.exec('COMMIT')
-						})
-						.catch(error => {
-							throw error
-						})
-				}else{
-					connection.exec('COMMIT')
-				}
+
+				// Async executors are unsupported: better-sqlite3 is synchronous, so a
+				// returned Promise would COMMIT here before the async work settled —
+				// leaving the transaction open across the event loop and turning any
+				// rejection into an unhandled one. Fail loudly instead of corrupting state.
+				if(ret instanceof Promise)
+					throw new Error(`structdb tx() executor must be synchronous — it returned a Promise`)
+
+				connection.exec('COMMIT')
 			}catch(error){
 				connection.exec('ROLLBACK')
 

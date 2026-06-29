@@ -96,6 +96,11 @@ async function crawlList({ ctx, id, url, fetchInterval = 600, trustLevel = 0, ig
 					if(props.hasOwnProperty('trust_level'))
 						props.trust_level = Math.min(props.trust_level, trustLevel)
 
+					// The ledger stores MPT issuance ids uppercased (see xrpl/mpt.js);
+					// XLS-26 permits lowercase hex, so normalize here or the unique
+					// tokens.mptIssuanceId never matches the ledger-side row.
+					mpt_issuance_id = mpt_issuance_id?.toUpperCase() ?? null
+
 					tokens.push({
 						currency: mpt_issuance_id == null ? currencyUTF8ToHex(currency) : null,
 						issuer: {
@@ -130,13 +135,13 @@ async function crawlList({ ctx, id, url, fetchInterval = 600, trustLevel = 0, ig
 					}
 				}
 				
-				diffMultiAccountProps({
+				await diffMultiAccountProps({
 					ctx,
 					accounts,
 					source: `trustlist/${id}`
 				})
 
-				diffMultiTokenProps({
+				await diffMultiTokenProps({
 					ctx,
 					tokens,
 					source: `trustlist/${id}`

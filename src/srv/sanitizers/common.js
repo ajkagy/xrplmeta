@@ -129,14 +129,27 @@ export function sanitizeLimitOffset({ defaultLimit, maxLimit }){
 		return {
 			...args,
 			ctx,
-			limit: limit
-				? Math.min(parseInt(limit), maxLimit)
+			limit: limit !== undefined
+				? Math.min(parseNonNegativeInt(limit, 'limit'), maxLimit)
 				: defaultLimit,
-			offset: offset
-				? parseInt(offset)
+			offset: offset !== undefined
+				? parseNonNegativeInt(offset, 'offset')
 				: undefined
 		}
 	}
+}
+
+// parseInt of a non-numeric query value yields NaN, which silently flows into the
+// ORM's take/skip; negatives invert ordering / page backwards. Reject both.
+function parseNonNegativeInt(value, name){
+	let n = parseInt(value, 10)
+	if(!Number.isFinite(n) || n < 0)
+		throw {
+			type: `invalidParam`,
+			message: `The parameter "${name}" must be a non-negative integer.`,
+			expose: true
+		}
+	return n
 }
 
 export function sanitizeSourcePreferences(){
@@ -206,7 +219,7 @@ function minMaxRange({ requested, available }){
 		if(requested.end < 0)
 			end = Math.max(requested.end + available.end, available.start)
 		else
-			end = Math.min(Math.max(requested.end, available.end), available.end)
+			end = Math.min(Math.max(requested.end, available.start), available.end)
 	}else{
 		end = available.end
 	}

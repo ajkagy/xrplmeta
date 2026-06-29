@@ -1,4 +1,5 @@
 import { getAccountId, getTokenId } from '../db/helpers/common.js'
+import { decodeNFTokenId } from '../xrpl/nftoken.js'
 
 export function markCacheDirtyForAccountProps({ ctx, account }){
 	if(ctx.backwards)
@@ -29,6 +30,47 @@ export function markCacheDirtyForTokenProps({ ctx, token }){
 	ctx.db.cache.todos.createOne({
 		data: {
 			task: 'token.props',
+			subject
+		}
+	})
+}
+
+export function markCacheDirtyForNFTCollection({ ctx, collection }){
+	if(ctx.backwards)
+		return
+
+	if(!collection?.id)
+		return
+
+	ctx.db.cache.todos.createOne({
+		data: {
+			task: 'nftCollection.metrics',
+			subject: collection.id
+		}
+	})
+}
+
+// Mark the collection a given NFT belongs to dirty, resolving (issuer, taxon) from
+// the NFTokenID — used from paths that only have a token id (offers / exchanges).
+export function markCacheDirtyForNFTCollectionByTokenId({ ctx, tokenId }){
+	if(ctx.backwards)
+		return
+
+	if(!tokenId)
+		return
+
+	let { issuer, taxon } = decodeNFTokenId(tokenId)
+	let subject = ctx.db.core.nftCollections.readOne({
+		where: { issuer: { address: issuer }, taxon },
+		select: { id: true }
+	})?.id
+
+	if(!subject)
+		return
+
+	ctx.db.cache.todos.createOne({
+		data: {
+			task: 'nftCollection.metrics',
 			subject
 		}
 	})

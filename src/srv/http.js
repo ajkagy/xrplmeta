@@ -6,6 +6,8 @@ import log from '../lib/log.js'
 import * as procedures from './api.js'
 import { getCachedIconPath, iconSizes } from '../cache/icons.js'
 import { executeProcedure } from './worker.js'
+import { serveNFTImage } from '../cache/nftenrich.js'
+import { getNFTMediaPath } from '../cache/nftmedia.js'
 import { noteHttpRequestStart, noteHttpRequestEnd, httpLoadPending } from '../cache/worker.js'
 import { getEventLoopLag, getProcessSnapshot, isLoopCritical } from '../lib/health.js'
 
@@ -383,6 +385,166 @@ export function createRouter({ ctx }){
 					...parseRange(svc.query)
 				}
 			})
+		}
+	)
+
+	router.get(
+		'/v2/nfts/collections',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'nft_collections',
+				params: {
+					sort_by: svc.query.sort_by,
+					name_like: svc.query.name_like,
+					issuer: svc.query.issuer,
+					limit: svc.query.limit,
+					offset: svc.query.offset
+				}
+			})
+		}
+	)
+
+	router.get(
+		'/v2/nfts/collection/:issuer/:taxon',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'nft_collection',
+				params: {
+					issuer: svc.params.issuer,
+					taxon: svc.params.taxon
+				}
+			})
+		}
+	)
+
+	router.get(
+		'/v2/nfts/collection/:issuer/:taxon/nfts',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'nft_collection_nfts',
+				params: {
+					...svc.query,
+					issuer: svc.params.issuer,
+					taxon: svc.params.taxon
+				}
+			})
+		}
+	)
+
+	router.get(
+		'/v2/nfts/collection/:issuer/:taxon/offers',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'nft_collection_offers',
+				params: {
+					...svc.query,
+					issuer: svc.params.issuer,
+					taxon: svc.params.taxon
+				}
+			})
+		}
+	)
+
+	router.get(
+		'/v2/nfts/collection/:issuer/:taxon/exchanges',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'nft_collection_exchanges',
+				params: {
+					...svc.query,
+					issuer: svc.params.issuer,
+					taxon: svc.params.taxon,
+					newestFirst: svc.query.newest_first !== undefined,
+					...parseRange(svc.query)
+				}
+			})
+		}
+	)
+
+	router.get(
+		'/v2/nft/:tokenId',
+		async svc => {
+			await handle({
+				ctx,
+				svc,
+				procedure: 'nft',
+				params: {
+					tokenId: svc.params.tokenId
+				}
+			})
+		}
+	)
+
+	router.get(
+		'/v2/nft/:tokenId/image',
+		async svc => {
+			let tokenId = svc.params.tokenId
+
+			if(!/^[0-9A-Fa-f]{64}$/.test(tokenId)){
+				svc.status = 400
+				svc.body = 'Invalid NFTokenID.'
+				return
+			}
+
+			tokenId = tokenId.toUpperCase()
+
+			// This route does its own outbound fetch + image decode on the main thread
+			// (it isn't dispatched to a worker), so honour the same load-shed guard the
+			// procedure path gets via handle().
+			if(isLoopCritical()){
+				svc.status = 503
+				svc.set('Retry-After', '2')
+				svc.body = 'server is temporarily overloaded; try again shortly'
+				return
+			}
+
+			try{
+				let result = await serveNFTImage({ ctx, tokenId })
+
+				if(!result){
+					svc.status = 404
+					svc.body = 'No image available for this NFT.'
+					return
+				}
+
+				if(result.busy){
+					svc.status = 503
+					svc.set('Retry-After', '2')
+					svc.body = 'image cache busy; try again shortly'
+					return
+				}
+
+				if(result.redirect){
+					svc.redirect(result.redirect)
+					return
+				}
+
+				let sizes = ctx.config.nfts?.media?.sizes?.length ? ctx.config.nfts.media.sizes : [256]
+				let size = sizes.includes(Number(svc.query.size)) ? Number(svc.query.size) : sizes[0]
+				let filePath = getNFTMediaPath({ ctx, hash: result.hash, size })
+
+				if(!fs.existsSync(filePath)){
+					svc.status = 404
+					svc.body = 'Image not available.'
+					return
+				}
+
+				await sendFile(svc, path.basename(filePath), { root: path.dirname(filePath) })
+			}catch(error){
+				log.debug(`nft image error for ${tokenId}: ${error?.message || error}`)
+				svc.status = 502
+				svc.body = 'Failed to fetch NFT image.'
+			}
 		}
 	)
 

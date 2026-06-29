@@ -105,14 +105,14 @@ async function crawlAssets({ ctx, fetch, interval }){
 					}
 				}
 
-				diffMultiAccountProps({ 
-					ctx, 
+				await diffMultiAccountProps({
+					ctx,
 					accounts,
 					source: 'xaman/curated'
 				})
 
-				diffMultiTokenProps({
-					ctx, 
+				await diffMultiTokenProps({
+					ctx,
 					tokens,
 					source: 'xaman/curated'
 				})

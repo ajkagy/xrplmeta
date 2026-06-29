@@ -53,13 +53,16 @@ export function diff({ ctx, ledgerSequence, transactionIndex, previous, final })
             adjustIssuerNameProp = true
         }
 
-        if (ledgerSequence >= row.ledgerSequence && transactionIndex > row.transactionIndex){
+        // Latest-wins tuple comparison. The previous `seq >= row.seq && txIdx > row.txIdx`
+        // mixed operators, so a later ledger with a smaller transaction index would not
+        // overwrite an earlier one. Treat (ledgerSequence, transactionIndex) as a pair,
+        // and seed from null on first observation.
+        if (row.ledgerSequence == null
+            || ledgerSequence > row.ledgerSequence
+            || (ledgerSequence === row.ledgerSequence && transactionIndex > row.transactionIndex)){
             row.ledgerSequence = ledgerSequence
             row.transactionIndex = transactionIndex
         }
-        
-        row.ledgerSequence = row.ledgerSequence ?? ledgerSequence
-        row.transactionIndex = row.transactionIndex ?? transactionIndex
     }
 
     ctx.db.core.mptokenMetadataUpdates.updateOne({

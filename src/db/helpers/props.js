@@ -1,7 +1,7 @@
 import log from '../../lib/log.js'
 import { isSameToken } from '../../xrpl/tokens.js'
 import { readTokenMetrics } from './tokenmetrics.js'
-import { markSyncOperation, endSyncOperation } from '../../lib/health.js'
+import { withSyncOp } from '../../lib/health.js'
 import {
 	markCacheDirtyForAccountIcons,
 	markCacheDirtyForAccountProps,
@@ -10,167 +10,280 @@ import {
 } from '../../cache/todo.js'
 
 
-function timeAndAttribute(opName, count, fn){
-	markSyncOperation(opName)
-	let blockStart = process.hrtime.bigint()
-	try{
-		return fn()
-	}finally{
-		endSyncOperation()
-		let ms = Number(process.hrtime.bigint() - blockStart) / 1e6
-		if(ms > 500)
-			log.warn(`slow ${opName} (n=${count}) took ${ms.toFixed(0)}ms — blocked event loop`)
+// How many subjects (accounts/tokens) we process per database transaction.
+// Each chunk runs in a single BEGIN IMMEDIATE..COMMIT (one fsync instead of
+// one-per-subject), and we yield to the event loop between chunks so the HTTP
+// / WebSocket server keeps serving even while a huge list (e.g. a 350k-entry
+// well-known dump) is being diffed. Tuned to keep each synchronous block well
+// under the health monitor's ~500ms stall threshold.
+const DIFF_CHUNK_SIZE = 500
+
+
+// setImmediate-based yield: lets pending I/O callbacks fire between chunks at
+// microsecond cost. Mirrors the pattern used in crawl/schedule.js.
+function yieldLoop(){
+	return new Promise(resolve => setImmediate(resolve))
+}
+
+
+function valuesDiffer(existing, incoming){
+	if(existing === incoming)
+		return false
+
+	if(existing == null || incoming == null)
+		return true
+
+	// "any"-typed prop values can be objects/arrays (advisories, urls, ...).
+	// Reference comparison would always report a change, so compare encoded
+	// form. Worst case we over-report a change (a redundant cache refresh),
+	// never under-report one (which would leave a stale cache).
+	if(typeof existing === 'object' || typeof incoming === 'object'){
+		try{
+			return JSON.stringify(existing) !== JSON.stringify(incoming)
+		}catch{
+			return true
+		}
 	}
+
+	return existing !== incoming
 }
 
 
-export function diffMultiTokenProps({ ctx, tokens, source }){
-	return timeAndAttribute(`diffMultiTokenProps[${source}]`, tokens.length, () => diffMultiTokenPropsImpl({ ctx, tokens, source }))
-}
+// Write one subject's props for a source, returning which prop rows are still
+// "live" (so the caller can sweep the rest as stale) and whether anything
+// actually changed (so cache invalidation can be skipped when it didn't).
+// Does NOT open its own transaction or mark the cache dirty — the caller owns
+// both, to allow batching across many subjects.
+function applyAccountProps({ ctx, account, props, source }){
+	let keptIds = []
+	let changed = false
+	let iconChanged = false
 
-function diffMultiTokenPropsImpl({ ctx, tokens, source }){
-	let propIds = []
-
-	for(let { currency, issuer, mptIssuanceId, tokenType, props } of tokens){
-		writeTokenProps({
-			ctx,
-			token: {
-				currency,
-				issuer,
-				mptIssuanceId,
-				tokenType
-			},
-			props,
-			source
+	for(let [key, value] of Object.entries(props)){
+		let existing = ctx.db.core.accountProps.readOne({
+			where: { account, key, source }
 		})
 
-		for(let key of Object.keys(props)){
-			let prop = ctx.db.core.tokenProps.readOne({
-				where: {
-					token: {
-						currency,
-						issuer,
-						mptIssuanceId,
-						tokenType
-					},
-					key,
-					source
-				}
-			})
+		if(value == null){
+			if(existing){
+				ctx.db.core.accountProps.deleteOne({ where: { id: existing.id } })
+				changed = true
+				if(key === 'icon')
+					iconChanged = true
+			}
+			continue
+		}
 
-			if(prop)
-				propIds.push(prop.id)
+		if(!existing){
+			let created = ctx.db.core.accountProps.createOne({
+				data: { account, key, value, source }
+			})
+			keptIds.push(created.id)
+			changed = true
+			if(key === 'icon')
+				iconChanged = true
+		}else{
+			keptIds.push(existing.id)
+
+			if(valuesDiffer(existing.value, value)){
+				ctx.db.core.accountProps.updateOne({
+					data: { value },
+					where: { id: existing.id }
+				})
+				changed = true
+				if(key === 'icon')
+					iconChanged = true
+			}
 		}
 	}
 
-	let staleProps = ctx.db.core.tokenProps.readMany({
-		where: {
-			NOT: {
-				id: {
-					in: propIds
-				}
-			},
-			source
-		},
-		include: {
-			token: true
-		}
-	})
+	return { keptIds, changed, iconChanged }
+}
 
-	ctx.db.core.tokenProps.deleteMany({
-		where: {
-			id: {
-				in: staleProps.map(
-					({ id }) => id
-				)
+
+function applyTokenProps({ ctx, token, props, source }){
+	let keptIds = []
+	let changed = false
+	let iconChanged = false
+
+	for(let [key, value] of Object.entries(props)){
+		let existing = ctx.db.core.tokenProps.readOne({
+			where: { token, key, source }
+		})
+
+		if(value == null){
+			if(existing){
+				ctx.db.core.tokenProps.deleteOne({ where: { id: existing.id } })
+				changed = true
+				if(key === 'icon')
+					iconChanged = true
+			}
+			continue
+		}
+
+		if(!existing){
+			let created = ctx.db.core.tokenProps.createOne({
+				data: { token, key, value, source }
+			})
+			keptIds.push(created.id)
+			changed = true
+			if(key === 'icon')
+				iconChanged = true
+		}else{
+			keptIds.push(existing.id)
+
+			if(valuesDiffer(existing.value, value)){
+				ctx.db.core.tokenProps.updateOne({
+					data: { value },
+					where: { id: existing.id }
+				})
+				changed = true
+				if(key === 'icon')
+					iconChanged = true
 			}
 		}
-	})
+	}
 
-	let deletionAffectedTokens = staleProps
-		.map(({ token }) => token)
-		.filter(
-			(token, index, tokens) => index === tokens.findIndex(
-				({ currency, issuer, mptIssuanceId }) => isSameToken(
-					{ ...token, mpt_issuance_id: token.mptIssuanceId },
-					{ currency, issuer, mpt_issuance_id: mptIssuanceId }
-				)
-			)
+	return { keptIds, changed, iconChanged }
+}
+
+
+// Delete every prop row for `source` whose id is not in `keptIds`, in bounded
+// chunks (so the IN(...) list never approaches SQLite's variable limit) and
+// yielding between chunks. Returns the distinct subjects that had rows removed.
+async function sweepStaleProps({ ctx, table, keptIds, source }){
+	let existing = withSyncOp(
+		`sweepStaleProps[${source}].scan`,
+		() => ctx.db.core[table].readMany({
+			where: { source },
+			include: table === 'accountProps'
+				? { account: true }
+				: { token: true }
+		})
+	)
+
+	let staleIds = []
+	let affected = []
+
+	for(let row of existing){
+		if(keptIds.has(row.id))
+			continue
+
+		staleIds.push(row.id)
+		affected.push(table === 'accountProps' ? row.account : row.token)
+	}
+
+	for(let i = 0; i < staleIds.length; i += DIFF_CHUNK_SIZE){
+		let slice = staleIds.slice(i, i + DIFF_CHUNK_SIZE)
+
+		withSyncOp(
+			`sweepStaleProps[${source}].delete`,
+			() => ctx.db.core.tx(() => ctx.db.core[table].deleteMany({
+				where: { id: { in: slice } }
+			}))
 		)
 
-	for(let token of deletionAffectedTokens){
+		await yieldLoop()
+	}
+
+	return affected
+}
+
+
+export async function diffMultiTokenProps({ ctx, tokens, source }){
+	let keptIds = new Set()
+	let dirty = new Map()
+	let iconDirty = new Map()
+
+	for(let i = 0; i < tokens.length; i += DIFF_CHUNK_SIZE){
+		let slice = tokens.slice(i, i + DIFF_CHUNK_SIZE)
+
+		withSyncOp(
+			`diffMultiTokenProps[${source}].write(${Math.min(i + slice.length, tokens.length)}/${tokens.length})`,
+			() => ctx.db.core.tx(() => {
+				for(let { currency, issuer, mptIssuanceId, tokenType, props } of slice){
+					let token = { currency, issuer, mptIssuanceId, tokenType }
+					let { keptIds: ids, changed, iconChanged } = applyTokenProps({ ctx, token, props, source })
+
+					for(let id of ids)
+						keptIds.add(id)
+
+					let dirtyKey = JSON.stringify([currency, issuer, mptIssuanceId, tokenType])
+
+					if(changed)
+						dirty.set(dirtyKey, token)
+					if(iconChanged)
+						iconDirty.set(dirtyKey, token)
+				}
+			})
+		)
+
+		await yieldLoop()
+	}
+
+	let removedFrom = await sweepStaleProps({ ctx, table: 'tokenProps', keptIds, source })
+
+	for(let token of dedupeTokens([...dirty.values(), ...removedFrom]))
 		markCacheDirtyForTokenProps({ ctx, token })
-	}
+
+	for(let token of iconDirty.values())
+		markCacheDirtyForTokenIcons({ ctx, token })
 }
 
-export function diffMultiAccountProps({ ctx, accounts, source }){
-	return timeAndAttribute(`diffMultiAccountProps[${source}]`, accounts.length, () => diffMultiAccountPropsImpl({ ctx, accounts, source }))
-}
 
-function diffMultiAccountPropsImpl({ ctx, accounts, source }){
-	let propIds = []
+export async function diffMultiAccountProps({ ctx, accounts, source }){
+	let keptIds = new Set()
+	let dirty = new Map()
+	let iconDirty = new Map()
 
-	for(let { address, props } of accounts){
-		writeAccountProps({
-			ctx,
-			account: {
-				address
-			},
-			props,
-			source
-		})
+	for(let i = 0; i < accounts.length; i += DIFF_CHUNK_SIZE){
+		let slice = accounts.slice(i, i + DIFF_CHUNK_SIZE)
 
-		for(let key of Object.keys(props)){
-			let prop = ctx.db.core.accountProps.readOne({
-				where: {
-					account: {
-						address
-					},
-					key,
-					source
+		withSyncOp(
+			`diffMultiAccountProps[${source}].write(${Math.min(i + slice.length, accounts.length)}/${accounts.length})`,
+			() => ctx.db.core.tx(() => {
+				for(let { address, props } of slice){
+					if(!address)
+						continue
+
+					let { keptIds: ids, changed, iconChanged } = applyAccountProps({ ctx, account: { address }, props, source })
+
+					for(let id of ids)
+						keptIds.add(id)
+
+					if(changed)
+						dirty.set(address, { address })
+					if(iconChanged)
+						iconDirty.set(address, { address })
 				}
 			})
-
-			if(prop)
-				propIds.push(prop.id)
-		}
-	}
-
-	let staleProps = ctx.db.core.accountProps.readMany({
-		where: {
-			NOT: {
-				id: {
-					in: propIds
-				}
-			},
-			source
-		},
-		include: {
-			account: true
-		}
-	})
-
-	ctx.db.core.accountProps.deleteMany({
-		where: {
-			id: {
-				in: staleProps.map(
-					({ id }) => id
-				)
-			}
-		}
-	})
-
-	let deletionAffectedAccounts = staleProps
-		.map(({ account }) => account)
-		.filter(
-			(account, index, accounts) => index === accounts.findIndex(
-				({ address }) => address === account.address
-			)
 		)
 
-	for(let account of deletionAffectedAccounts){
-		markCacheDirtyForAccountProps({ ctx, account })
+		await yieldLoop()
 	}
+
+	let removedFrom = await sweepStaleProps({ ctx, table: 'accountProps', keptIds, source })
+
+	for(let account of removedFrom)
+		dirty.set(account.address ?? `#${account.id}`, account)
+
+	for(let account of dirty.values())
+		markCacheDirtyForAccountProps({ ctx, account })
+
+	for(let account of iconDirty.values())
+		markCacheDirtyForAccountIcons({ ctx, account })
+}
+
+
+function dedupeTokens(tokens){
+	return tokens.filter(
+		(token, index, all) => index === all.findIndex(
+			({ currency, issuer, mptIssuanceId }) => isSameToken(
+				{ ...token, mpt_issuance_id: token.mptIssuanceId },
+				{ currency, issuer, mpt_issuance_id: mptIssuanceId }
+			)
+		)
+	)
 }
 
 
@@ -209,9 +322,9 @@ export function readTokenProps({ ctx, token }){
 	}
 
 	if(issuerGivenTrustLevelProps.length > 0){
-		let { holders } = readTokenMetrics({ 
-			ctx, 
-			token, 
+		let { holders } = readTokenMetrics({
+			ctx,
+			token,
 			metrics: {
 				holders: true
 			}
@@ -221,7 +334,7 @@ export function readTokenProps({ ctx, token }){
 			props.push(...issuerGivenTrustLevelProps)
 		}
 	}
-	
+
 	return props.map(({ key, value, source }) => ({ key, value, source }))
 }
 
@@ -229,28 +342,7 @@ export function writeTokenProps({ ctx, token, props, source }){
 	if(Object.keys(props).length === 0)
 		return
 
-	ctx.db.core.tx(() => {
-		for(let [key, value] of Object.entries(props)){
-			if(value == null){
-				ctx.db.core.tokenProps.deleteOne({
-					where: {
-						token,
-						key,
-						source
-					}
-				})
-			}else{
-				ctx.db.core.tokenProps.createOne({
-					data: {
-						token,
-						key,
-						value,
-						source
-					}
-				})
-			}
-		}
-	})
+	ctx.db.core.tx(() => applyTokenProps({ ctx, token, props, source }))
 
 	markCacheDirtyForTokenProps({ ctx, token })
 
@@ -292,7 +384,7 @@ export function readAccountProps({ ctx, account }){
 			domain: true
 		}
 	})
-	
+
 	if(domain)
 		props.push({
 			key: 'domain',
@@ -305,28 +397,7 @@ export function readAccountProps({ ctx, account }){
 }
 
 export function writeAccountProps({ ctx, account, props, source }){
-	ctx.db.core.tx(() => {
-		for(let [key, value] of Object.entries(props)){
-			if(value == null){
-				ctx.db.core.accountProps.deleteOne({
-					where: {
-						account,
-						key,
-						source
-					}
-				})
-			}else{
-				ctx.db.core.accountProps.createOne({
-					data: {
-						account,
-						key,
-						value,
-						source
-					}
-				})
-			}
-		}
-	})
+	ctx.db.core.tx(() => applyAccountProps({ ctx, account, props, source }))
 
 	markCacheDirtyForAccountProps({ ctx, account })
 
@@ -342,7 +413,7 @@ export function clearTokenProps({ ctx, token, source }){
 			source
 		}
 	})
-	
+
 	if(deletedNum > 0){
 		markCacheDirtyForTokenProps({ ctx, token })
 		markCacheDirtyForTokenIcons({ ctx, token })
@@ -356,7 +427,7 @@ export function clearAccountProps({ ctx, account, source }){
 			source
 		}
 	})
-	
+
 	if(deletedNum > 0){
 		markCacheDirtyForAccountProps({ ctx, account })
 		markCacheDirtyForAccountIcons({ ctx, account })

@@ -26,10 +26,10 @@ export function canonicalize(xfl){
 	if(clamp){
 		if (xfl.exponent > exponentMax){
 			xfl.exponent = exponentMax
-			xfl.mantissa = mantissaMax
+			xfl.mantissa = mantissaMax * sign
 		}else if(xfl.exponent < exponentMin){
 			xfl.exponent = exponentMin
-			xfl.mantissa = mantissaMin
+			xfl.mantissa = mantissaMin * sign
 		}
 	}else{
 		if (xfl.exponent > exponentMax || xfl.exponent < exponentMin)

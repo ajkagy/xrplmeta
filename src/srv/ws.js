@@ -147,7 +147,9 @@ export function createManager({ ctx }){
 			})
 	
 			socket.on('close', () => {
-				clients.splice(clients.indexOf(client))
+				let index = clients.indexOf(client)
+				if(index !== -1)
+					clients.splice(index, 1)
 				log.debug(`client #${client.id} disconnected`)
 				logCount(-1)
 			})

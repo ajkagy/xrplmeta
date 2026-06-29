@@ -26,9 +26,18 @@ export default async function({ ctx }){
 				let accounts = []
 				let { data } = await fetch('names/well-known')
 
+				if(!Array.isArray(data)){
+					log.warn(`well-known list response was not an array (got ${typeof data}) — skipping this run`)
+					return
+				}
+
 				log.info(`got`, data.length, `well known`)
 
-				for(let { account, name, domain, twitter } of data){
+				for(let entry of data){
+					if(!entry || typeof entry !== 'object' || !entry.account)
+						continue
+
+					let { account, name, domain, twitter } = entry
 					let urls = undefined
 
 					if(twitter){
@@ -48,7 +57,7 @@ export default async function({ ctx }){
 					})
 				}
 
-				diffMultiAccountProps({
+				await diffMultiAccountProps({
 					ctx,
 					accounts,
 					source: 'xrpscan/well-known'

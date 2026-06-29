@@ -59,7 +59,7 @@ export function readTokenMetricSeries({ ctx, token, metric, sequenceStart, seque
             ledgerSequence: {
                 greaterOrEqual: sequenceStart,
                 ...(
-                    sequenceEnd
+                    sequenceEnd != null
                         ? { lessOrEqual: sequenceEnd }
                         : {}
                 )

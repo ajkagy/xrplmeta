@@ -2,8 +2,18 @@ import { updateMarketcapFromExchange, updateMarketcapFromSupply } from './market
 
 
 export function updateDerived({ ctx, newItems }){
+	// Tokens whose supply changed this ledger get an authoritative marketcap from the
+	// supply pass below (fresh supply × latest price, which already includes any new
+	// exchange). Skip those in the exchange pass to avoid a divergent double-write of
+	// the same (token, ledgerSequence) marketcap point.
+	let supplyTokenIds = new Set(
+		newItems.tokenSupply
+			.map(supply => supply.token?.id)
+			.filter(id => id != null)
+	)
+
 	for(let exchange of newItems.tokenExchanges){
-		updateMarketcapFromExchange({ ctx, exchange })
+		updateMarketcapFromExchange({ ctx, exchange, skipTokenIds: supplyTokenIds })
 	}
 
 	for(let supply of newItems.tokenSupply){

@@ -1,6 +1,6 @@
 import { applyLedgerStats } from './ledgers.js'
 import { applyTokenExchanges } from './tokens.js'
-import { applyNFTokenExchanges, applyNFTokenModifications } from './nfts.js'
+import { applyNFTokenExchanges, applyNFTokenModifications, applyNFTokenBurns } from './nfts.js'
 
 
 export function applyLedgerEvents({ ctx, ledger }){
@@ -8,4 +8,5 @@ export function applyLedgerEvents({ ctx, ledger }){
 	applyTokenExchanges({ ctx, ledger })
 	applyNFTokenExchanges({ ctx, ledger })
 	applyNFTokenModifications({ ctx, ledger })
+	applyNFTokenBurns({ ctx, ledger })
 }

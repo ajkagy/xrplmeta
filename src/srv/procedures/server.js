@@ -31,7 +31,11 @@ export function serveServerInfo(){
 			total_tokens: iouCount + mptCount + 1,
 			total_ious: iouCount,
 			total_mpts: mptCount,
-			total_nfts: 0
+			// count() with no predicate so this hot endpoint doesn't full-scan NFToken
+			// on a NOT-NULL(owner) filter (there is no owner index). Counts all indexed
+			// NFTs (incl. burned); live supply per collection is available via the cache.
+			total_nfts: Number(ctx.db.core.nfts.count()),
+			total_nft_collections: Number(ctx.db.core.nftCollections.count())
 		}
 	}
 }
