@@ -544,7 +544,6 @@
 				"ledgerSequence"
 			],
 			"unique": [
-				["token", "ledgerSequence:asc"],
 				["token", "ledgerSequence:desc"]
 			]
 		},
@@ -571,7 +570,6 @@
 				"ledgerSequence"
 			],
 			"unique": [
-				["token", "ledgerSequence:asc"],
 				["token", "ledgerSequence:desc"]
 			]
 		},
@@ -598,7 +596,6 @@
 				"ledgerSequence"
 			],
 			"unique": [
-				["token", "ledgerSequence:asc"],
 				["token", "ledgerSequence:desc"]
 			]
 		},
@@ -626,7 +623,6 @@
 				"ledgerSequence"
 			],
 			"unique": [
-				["token", "ledgerSequence:asc"],
 				["token", "ledgerSequence:desc"]
 			]
 		},

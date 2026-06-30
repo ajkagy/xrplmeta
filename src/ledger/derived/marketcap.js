@@ -1,6 +1,6 @@
 import log from '../../lib/log.js'
 import { mul } from '../../../vendor/xfl/wrappers/class.js'
-import { readTokenMetricSeries, readTokenMetrics, writeTokenMetrics } from '../../db/helpers/tokenmetrics.js'
+import { readTokenMetricSeries, readTokenMetrics, writeTokenMetrics, writeMetricSeriesBackward } from '../../db/helpers/tokenmetrics.js'
 import { readTokenExchangeAligned, alignTokenExchange } from '../../db/helpers/tokenexchanges.js'
 
 
@@ -45,18 +45,18 @@ export function updateMarketcapFromExchange({ ctx, exchange, skipTokenIds }){
 			sequenceEnd: firstMarketcap ? firstMarketcap.ledgerSequence - 1 : undefined
 		})
 
-		for(let { ledgerSequence: sequence, value: supply } of series){
-			writeTokenMetrics({
-				ctx,
-				token: exchange.base,
-				ledgerSequence: sequence,
-				metrics: {
-					marketcap: supply
-						? mul(supply, exchange.price)
-						: '0'
-				}
-			})
-		}
+		// Materialise the whole marketcap series in one pass (one range read + one anchor
+		// read) instead of a readPoint per supply point — the previous per-point loop was
+		// O(token-history) per exchange and the main source of multi-second apply spikes.
+		writeMetricSeriesBackward({
+			ctx,
+			token: exchange.base,
+			metric: 'marketcap',
+			points: series.map(({ ledgerSequence, value: supply }) => ({
+				ledgerSequence,
+				value: supply ? mul(supply, exchange.price) : null
+			}))
+		})
 	}else{
 		let { supply } = readTokenMetrics({
 			ctx,

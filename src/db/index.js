@@ -77,9 +77,27 @@ export async function openCoreDB({ ctx, readOnly=false, inMemory=false }){
 				}
 			})
 		})
+
+		dropRedundantMetricIndexes(db)
 	}
 
 	return db
+}
+
+// The metric point tables used to carry TWO unique indexes (ascending + descending) on
+// the same (token, ledgerSequence) columns, doubling B-tree maintenance on every metric
+// write. The schema now declares only the descending one (it serves readPoint's
+// `ORDER BY ledgerSequence DESC` head-read and enforces the same uniqueness). But
+// structdb's construction uses CREATE INDEX IF NOT EXISTS and never drops, so removing
+// them from the schema does NOT remove them from an existing DB — this does, once, on
+// the writer connection. Idempotent (DROP INDEX IF EXISTS), so it's a no-op thereafter.
+function dropRedundantMetricIndexes(db){
+	for(let table of ['TokenSupply', 'TokenTrustlines', 'TokenHolders', 'TokenMarketcap']){
+		db.database.run({
+			text: `DROP INDEX IF EXISTS "${table}:unique-token-ledgerSequence:asc"`,
+			values: []
+		})
+	}
 }
 
 export async function openCacheDB({ ctx, readOnly=false, inMemory=false }){

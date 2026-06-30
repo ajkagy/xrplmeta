@@ -17,6 +17,13 @@ const SAMPLE_INTERVAL_MS = 250
 // when it detects a long stall.
 let currentSyncOp = null
 let currentSyncOpStartedAt = 0n
+// Most-recently-completed op, for post-hoc attribution: a synchronous block runs
+// to completion (clearing currentSyncOp) BEFORE the 250ms sampler can wake to
+// read it, so a slow-but-finished tx would otherwise report "no sync op". Best
+// effort — the single global marker can name the wrong op under real concurrency.
+let lastSyncOp = null
+let lastSyncOpDurationMs = 0
+let lastSyncOpEndedAt = 0
 let lastStallReportedAt = 0
 const STALL_LOG_THRESHOLD_MS = 2000
 const STALL_LOG_COOLDOWN_MS = 5000
@@ -27,6 +34,11 @@ export function markSyncOperation(name){
 }
 
 export function endSyncOperation(){
+	if(currentSyncOp !== null){
+		lastSyncOp = currentSyncOp
+		lastSyncOpDurationMs = Number(process.hrtime.bigint() - currentSyncOpStartedAt) / 1e6
+		lastSyncOpEndedAt = Date.now()
+	}
 	currentSyncOp = null
 	currentSyncOpStartedAt = 0n
 }
@@ -77,9 +89,15 @@ export function startHealthMonitor(){
 		// at that moment (if anything explicitly marked itself).
 		if(lag >= STALL_LOG_THRESHOLD_MS && (now - lastStallReportedAt) > STALL_LOG_COOLDOWN_MS){
 			lastStallReportedAt = now
-			let opNote = currentSyncOp
-				? `current sync op: "${currentSyncOp}" (started ${Number(process.hrtime.bigint() - currentSyncOpStartedAt) / 1e6 | 0}ms before stall)`
-				: 'no sync op currently marked — block is in code that isn\'t instrumented yet'
+			let opNote
+			if(currentSyncOp){
+				opNote = `current sync op: "${currentSyncOp}" (started ${Number(process.hrtime.bigint() - currentSyncOpStartedAt) / 1e6 | 0}ms before stall)`
+			}else if(lastSyncOp && (now - lastSyncOpEndedAt) <= lag){
+				// The blocking op already finished this same turn — attribute it.
+				opNote = `most recently completed sync op: "${lastSyncOp}" (${lastSyncOpDurationMs | 0}ms, ended ${now - lastSyncOpEndedAt}ms ago)`
+			}else{
+				opNote = 'no sync op currently marked — block is in code that isn\'t instrumented yet'
+			}
 			log.warn(`event-loop stall detected: ${lag}ms — ${opNote}`)
 		}
 

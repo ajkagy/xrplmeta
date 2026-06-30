@@ -1,6 +1,6 @@
 import log from '../lib/log.js'
 import { spawn } from '../lib/workers.js'
-import { markSyncOperation, endSyncOperation } from '../lib/health.js'
+import { markSyncOperation, endSyncOperation, isLoopStressed, isLoopCritical } from '../lib/health.js'
 import { applyLedgerEvents } from './events/index.js'
 import { applyLedgerStateFromTransactions } from './state/index.js'
 import { updateDerived } from './derived/index.js'
@@ -78,8 +78,20 @@ export async function startBackfill({ ctx }){
 			}
 		})
 
-		// Back off harder when HTTP requests are in flight so users get priority.
+		// Yield to the event loop between ledgers so queued HTTP / WS / timers get a
+		// slice — the apply tx is synchronous and can't yield mid-transaction, so this
+		// per-ledger setImmediate is the only pacing when the loop is idle (mirrors
+		// the forward-sync loop). Without it, backfill monopolises the loop.
+		await new Promise(resolve => setImmediate(resolve))
+
+		// Only actively throttle when the loop is genuinely under load; when it's idle
+		// the yield above is enough and backfill runs at full speed. Gating on the lag
+		// predicates (not raw httpLoadPending) avoids slowing backfill when requests
+		// are in flight but the loop is keeping up.
 		let pending = httpLoadPending()
-		await wait(pending > 0 ? Math.min(500, 50 * pending) : 10)
+		if(isLoopCritical())
+			await wait(Math.min(500, 50 * (pending || 1)))
+		else if(isLoopStressed() && pending > 0)
+			await wait(Math.min(200, 25 * pending))
 	}
 }
